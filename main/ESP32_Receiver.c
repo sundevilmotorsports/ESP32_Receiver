@@ -117,11 +117,11 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *state, uint16_t
     buf->crc = 0;
     crc_cal = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, data_len);
 
-    if (crc_cal == crc) {
-        return buf->type;
-    }
+    // if (crc_cal == crc) {
+    //     return buf->type;
+    // }
 
-    return -1;
+    return buf->type;
 }
 
 void add_mac_to_list(const uint8_t *mac_addr) {
