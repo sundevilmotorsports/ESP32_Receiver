@@ -9,7 +9,6 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
-#include "esp_random.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -28,13 +27,35 @@ static uint8_t s_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xF
 static uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
 static TimerHandle_t ack_timer;
 
+static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+    if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+        wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
+        ESP_LOGI(TAG, "Station "MACSTR" joined, AID=%d", MAC2STR(event->mac), event->aid);
+    } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+        wifi_event_ap_stadisconnected_t* event = (wifi_event_ap_stadisconnected_t*) event_data;
+        ESP_LOGI(TAG, "Station "MACSTR" left, AID=%d", MAC2STR(event->mac), event->aid);
+    } else if (event_id == WIFI_EVENT_AP_START) {
+        ESP_LOGI(TAG, "WiFi soft AP started");
+    } else if (event_id == WIFI_EVENT_AP_STOP) {
+        ESP_LOGI(TAG, "WiFi soft AP stopped");
+    }
+}
+
 static void wifi_init(void) {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    esp_netif_create_default_wifi_sta();
+    esp_netif_create_default_wifi_ap();
+
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
     ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
-    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
+
+    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_APSTA) );
+
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+
     ESP_ERROR_CHECK( esp_wifi_start());
     ESP_ERROR_CHECK( esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE));
     ESP_ERROR_CHECK( esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B|WIFI_PROTOCOL_11G|WIFI_PROTOCOL_11N|WIFI_PROTOCOL_LR) );
@@ -184,8 +205,6 @@ void espnow_task(void *pvParameter) {
     int recv_magic = 0;
     int ret;
 
-    ESP_LOGI(TAG, "Broadcasting ACKs every 15 seconds");
-
     while (xQueueReceive(s_espnow_queue, &evt, portMAX_DELAY) == pdTRUE) {
         switch (evt.id) {
             case ESPNOW_SEND_CB:
@@ -223,6 +242,29 @@ void espnow_task(void *pvParameter) {
                 break;
         }
     }
+}
+
+esp_err_t softap_init(void) {
+    wifi_config_t wifi_ap_config = {
+        .ap = {
+            .ssid = SOFTAP_SSID,
+            .ssid_len = strlen(SOFTAP_SSID),
+            .channel = SOFTAP_CHANNEL,
+            .password = SOFTAP_PASS,
+            .max_connection = MAX_STA_CONN,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+            .pmf_cfg = {
+                .required = false,
+            },
+        },
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
+
+    ESP_LOGI(TAG, "WiFi soft AP initialized. SSID:%s password:%s channel:%d",
+             SOFTAP_SSID, SOFTAP_PASS, SOFTAP_CHANNEL);
+
+    return ESP_OK;
 }
 
 esp_err_t espnow_init(void) {
@@ -301,5 +343,6 @@ void app_main(void) {
     ESP_ERROR_CHECK( ret );
 
     wifi_init();
+    softap_init();
     espnow_init();
 }

@@ -3,6 +3,10 @@
 
 #define MAX_MAC_ADDRESSES 50
 #define ESPNOW_MAXDELAY 512
+#define SOFTAP_SSID "Timing Gate"
+#define SOFTAP_PASS "244466666"
+#define SOFTAP_CHANNEL 1
+#define MAX_STA_CONN 4
 
 #include "esp_now.h"
 
@@ -77,5 +81,6 @@ void espnow_data_prepare(espnow_send_param_t *send_param);
 void add_mac_to_list(const uint8_t *mac_addr);
 bool is_mac_in_list(const uint8_t *mac_addr);
 void send_ack(const uint8_t *dest_mac);
+esp_err_t softap_init(void);
 
 #endif //ESP32_RECEIVER_ESP32_RECEIVER_H
