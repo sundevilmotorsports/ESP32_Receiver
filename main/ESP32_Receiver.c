@@ -17,6 +17,7 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 #include "ESP32_Receiver.h"
+#include "server.h"
 
 #define ESPNOW_QUEUE_SIZE 6
 #define ACK_TIMER_INTERVAL_MS (15 * 1000)
@@ -231,7 +232,7 @@ void espnow_task(void *pvParameter) {
                 } else if (ret == ESPNOW_DATA_REQUEST) {
                     ESP_LOGI(TAG, "Received request from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
 
-                    add_mac_to_list(recv_cb->mac_addr);
+                    ESP_LOGI(TAG, "Data: %s", recv_cb->data);
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                 }
@@ -345,4 +346,5 @@ void app_main(void) {
     wifi_init();
     softap_init();
     espnow_init();
+    xTaskCreatePinnedToCore(server_start, "server", 4098, NULL, 4, NULL, 1);
 }
