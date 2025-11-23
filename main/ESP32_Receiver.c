@@ -221,6 +221,7 @@ void espnow_task(void *pvParameter) {
             case ESPNOW_RECV_CB:
             {
                 event_recv_cb_t *recv_cb = &evt.info.recv_cb;
+                espnow_data_t *packet = (espnow_data_t*)recv_cb->data;
 
                 ret = espnow_data_parse(recv_cb->data, recv_cb->data_len, &recv_state, &recv_seq, &recv_magic);
                 free(recv_cb->data);
@@ -232,7 +233,14 @@ void espnow_task(void *pvParameter) {
                 } else if (ret == ESPNOW_DATA_REQUEST) {
                     ESP_LOGI(TAG, "Received request from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
 
-                    ESP_LOGI(TAG, "Data: %s", recv_cb->data);
+                    char* buffer = malloc(packet->len);
+                    if (buffer != NULL) {
+                        memcpy(buffer, packet->payload, packet->len);
+                        ESP_LOGI(TAG, "Received data: %s", buffer);
+                        free(buffer);
+                    } else {
+                        ESP_LOGE(TAG, "Failed to allocate buffer for received data");
+                    }
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                 }
