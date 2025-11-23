@@ -5,5 +5,7 @@
 
 void server_start();
 esp_err_t server_stop(httpd_handle_t server);
+void addGate(char* macaddr);
+void addTime(char* macaddr, char* timestamp);
 
 #endif //ESP32_RECEIVER_SERVER_H

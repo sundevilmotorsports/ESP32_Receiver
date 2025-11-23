@@ -20,21 +20,36 @@ struct HashTable hashtable_create() {
     struct HashTable table;
     table.size = TABLE_SIZE;
     table.bucket = calloc(TABLE_SIZE, sizeof(char*));
-    table.values = calloc(TABLE_SIZE, sizeof(char*));
+    table.values = calloc(TABLE_SIZE, sizeof(struct GateData*));
     return table;
 }
 
-void hashtable_insert(struct HashTable *table, char *key, char *value) {
+void hashtable_insert(struct HashTable *table, char *key, struct GateData *value) {
     if (table == NULL || key == NULL) {
         return;
     }
 
     int index = key_hash(key);
     table->bucket[index] = strdup(key);
-    table->values[index] = strdup(value);
+
+    // Free existing GateData if it exists
+    if (table->values[index] != NULL) {
+        if (table->values[index]->timestamp != NULL) {
+            free(table->values[index]->timestamp);
+        }
+        if (table->values[index]->time_delta != NULL) {
+            free(table->values[index]->time_delta);
+        }
+        free(table->values[index]);
+    }
+
+    // Allocate new GateData and copy values
+    table->values[index] = malloc(sizeof(struct GateData));
+    table->values[index]->timestamp = value && value->timestamp ? strdup(value->timestamp) : NULL;
+    table->values[index]->time_delta = value && value->time_delta ? strdup(value->time_delta) : NULL;
 }
 
-char *hashtable_get(struct HashTable *table, char *key) {
+struct GateData *hashtable_get(struct HashTable *table, char *key) {
     if (table == NULL || key == NULL) {
         return NULL;
     }

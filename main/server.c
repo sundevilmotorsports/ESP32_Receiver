@@ -1,6 +1,7 @@
 #include "server.h"
 #include <esp_log.h>
 #include <esp_http_server.h>
+#include <esp_timer.h>
 #include <sys/unistd.h>
 #include <string.h>
 #include <stdlib.h>
@@ -75,14 +76,16 @@ static esp_err_t gate_get_handler(httpd_req_t *req) {
     bool first = true;
     for (int i = 0; i < table.size; i++) {
         if (keys[i] != NULL) {
-            char* value = hashtable_get(&table, keys[i]);
-            if (value != NULL) {
+            struct GateData* gate_data = hashtable_get(&table, keys[i]);
+            if (gate_data != NULL) {
                 if (!first) {
                     pos += snprintf(buffer + pos, 4096 - pos, ",");
                 }
                 pos += snprintf(buffer + pos, 4096 - pos,
-                    "{\"macaddr\":\"%s\",\"timestamp\":\"%s\"}",
-                    keys[i], value);
+                    "{\"macaddr\":\"%s\",\"timestamp\":\"%s\",\"time_delta\":\"%s\"}",
+                    keys[i],
+                    gate_data->timestamp ? gate_data->timestamp : "",
+                    gate_data->time_delta ? gate_data->time_delta : "");
                 first = false;
 
                 if (pos >= 4000) {
@@ -112,9 +115,13 @@ static const httpd_uri_t gate = {
 httpd_handle_t start(void) {
     table = hashtable_create();
 
-    hashtable_insert(&table, "gate1", "some time");
-    hashtable_insert(&table, "gate2", "another time");
-    hashtable_insert(&table, "gate3", "different time");
+    // struct GateData gate1_data = {"1000", "1.5"};
+    // struct GateData gate2_data = {"2000", "2.3"};
+    // struct GateData gate3_data = {"3000", "1.8"};
+    //
+    // hashtable_insert(&table, "gate1", &gate1_data);
+    // hashtable_insert(&table, "gate2", &gate2_data);
+    // hashtable_insert(&table, "gate3", &gate3_data);
 
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -143,4 +150,27 @@ void server_start() {
 
 esp_err_t server_stop(httpd_handle_t server) {
     return httpd_stop(server);
+}
+
+void addGate(char* macaddr) {
+    struct GateData gate_data = {NULL, NULL};
+    hashtable_insert(&table, macaddr, &gate_data);
+}
+
+char* getCurrentTimestamp() {
+    static char timestamp[32];
+
+    uint64_t uptime_ms = esp_timer_get_time() / 1000;
+
+    snprintf(timestamp, sizeof(timestamp), "%llu", uptime_ms);
+    return timestamp;
+}
+
+void addTime(char* macaddr, char* time_delta) {
+    struct GateData new_data;
+
+    new_data.timestamp = getCurrentTimestamp();
+    new_data.time_delta = time_delta;
+
+    hashtable_insert(&table, macaddr, &new_data);
 }

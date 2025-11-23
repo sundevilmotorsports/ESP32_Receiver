@@ -28,6 +28,12 @@ static uint8_t s_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xF
 static uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
 static TimerHandle_t ack_timer;
 
+void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
+    snprintf(mac_string, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac_addr[0], mac_addr[1], mac_addr[2],
+             mac_addr[3], mac_addr[4], mac_addr[5]);
+}
+
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_id == WIFI_EVENT_AP_STACONNECTED) {
         wifi_event_ap_staconnected_t* event = (wifi_event_ap_staconnected_t*) event_data;
@@ -230,6 +236,9 @@ void espnow_task(void *pvParameter) {
                     ESP_LOGI(TAG, "Received ACK from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
 
                     add_mac_to_list(recv_cb->mac_addr);
+                    char mac_string[18];
+                    mac_to_string(recv_cb->mac_addr, mac_string);
+                    addGate(mac_string);
                 } else if (ret == ESPNOW_DATA_REQUEST) {
                     ESP_LOGI(TAG, "Received request from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
 
@@ -237,6 +246,12 @@ void espnow_task(void *pvParameter) {
                     if (buffer != NULL) {
                         memcpy(buffer, packet->payload, packet->len);
                         ESP_LOGI(TAG, "Received data: %s", buffer);
+
+                        char mac_addr_string[18];
+                        mac_to_string(recv_cb->mac_addr, mac_addr_string);
+
+                        addTime(mac_addr_string, buffer);
+
                         free(buffer);
                     } else {
                         ESP_LOGE(TAG, "Failed to allocate buffer for received data");
