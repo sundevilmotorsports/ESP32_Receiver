@@ -230,7 +230,6 @@ void espnow_task(void *pvParameter) {
                 espnow_data_t *packet = (espnow_data_t*)recv_cb->data;
 
                 ret = espnow_data_parse(recv_cb->data, recv_cb->data_len, &recv_state, &recv_seq, &recv_magic);
-                free(recv_cb->data);
 
                 if (ret == ESPNOW_DATA_ACK) {
                     ESP_LOGI(TAG, "Received ACK from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
@@ -242,23 +241,32 @@ void espnow_task(void *pvParameter) {
                 } else if (ret == ESPNOW_DATA_REQUEST) {
                     ESP_LOGI(TAG, "Received request from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
 
-                    char* buffer = malloc(packet->len);
-                    if (buffer != NULL) {
-                        memcpy(buffer, packet->payload, packet->len);
-                        ESP_LOGI(TAG, "Received data: %s", buffer);
+                    size_t payload_len = packet->len;
+                    if (payload_len > 0 && payload_len <= sizeof(packet->payload)) {
+                        char* buffer = malloc(payload_len + 1);
+                        if (buffer != NULL) {
+                            memcpy(buffer, packet->payload, payload_len);
+                            buffer[payload_len] = '\0';
 
-                        char mac_addr_string[18];
-                        mac_to_string(recv_cb->mac_addr, mac_addr_string);
+                            ESP_LOGI(TAG, "Received data: %s", buffer);
 
-                        addTime(mac_addr_string, buffer);
+                            char mac_addr_string[18];
+                            mac_to_string(recv_cb->mac_addr, mac_addr_string);
 
-                        free(buffer);
+                            addTime(mac_addr_string, buffer);
+
+                            free(buffer);
+                        } else {
+                            ESP_LOGE(TAG, "Failed to allocate buffer for received data");
+                        }
                     } else {
-                        ESP_LOGE(TAG, "Failed to allocate buffer for received data");
+                        ESP_LOGE(TAG, "Invalid payload length: %zu", payload_len);
                     }
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                 }
+
+                free(recv_cb->data);
                 break;
             }
             default:

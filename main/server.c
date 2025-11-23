@@ -49,6 +49,56 @@ static const httpd_uri_t status = {
     .user_ctx  = NULL
 };
 
+static void escape_json_string(char* dest, const char* src, size_t dest_size) {
+    size_t dest_pos = 0;
+    size_t src_len = strlen(src);
+
+    for (size_t i = 0; i < src_len && dest_pos < dest_size - 1; i++) {
+        char c = src[i];
+
+        if (dest_pos >= dest_size - 6) break;
+
+        switch (c) {
+            case '"':
+                dest[dest_pos++] = '\\';
+                dest[dest_pos++] = '"';
+                break;
+            case '\\':
+                dest[dest_pos++] = '\\';
+                dest[dest_pos++] = '\\';
+                break;
+            case '\b':
+                dest[dest_pos++] = '\\';
+                dest[dest_pos++] = 'b';
+                break;
+            case '\f':
+                dest[dest_pos++] = '\\';
+                dest[dest_pos++] = 'f';
+                break;
+            case '\n':
+                dest[dest_pos++] = '\\';
+                dest[dest_pos++] = 'n';
+                break;
+            case '\r':
+                dest[dest_pos++] = '\\';
+                dest[dest_pos++] = 'r';
+                break;
+            case '\t':
+                dest[dest_pos++] = '\\';
+                dest[dest_pos++] = 't';
+                break;
+            default:
+                if (c < 0x20 || c == 0x7F) {
+                    dest_pos += snprintf(dest + dest_pos, dest_size - dest_pos, "\\u%04x", (unsigned char)c);
+                } else {
+                    dest[dest_pos++] = c;
+                }
+                break;
+        }
+    }
+    dest[dest_pos] = '\0';
+}
+
 static esp_err_t gate_get_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "*");
@@ -63,15 +113,19 @@ static esp_err_t gate_get_handler(httpd_req_t *req) {
         return ESP_OK;
     }
 
-    char* buffer = malloc(4096);
+    char* buffer = malloc(8192);
     if (!buffer) {
         httpd_resp_set_type(req, "text/plain");
         httpd_resp_send(req, "Failed to allocate memory", HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
 
+    char escaped_macaddr[128];
+    char escaped_timestamp[128];
+    char escaped_time_delta[128];
+
     int pos = 0;
-    pos += snprintf(buffer + pos, 4096 - pos, "{\"gates\":[");
+    pos += snprintf(buffer + pos, 8192 - pos, "{\"gates\":[");
 
     bool first = true;
     for (int i = 0; i < table.size; i++) {
@@ -79,23 +133,33 @@ static esp_err_t gate_get_handler(httpd_req_t *req) {
             struct GateData* gate_data = hashtable_get(&table, keys[i]);
             if (gate_data != NULL) {
                 if (!first) {
-                    pos += snprintf(buffer + pos, 4096 - pos, ",");
+                    pos += snprintf(buffer + pos, 8192 - pos, ",");
                 }
-                pos += snprintf(buffer + pos, 4096 - pos,
-                    "{\"macaddr\":\"%s\",\"timestamp\":\"%s\",\"time_delta\":\"%s\"}",
-                    keys[i],
+
+                // Escape each field properly
+                escape_json_string(escaped_macaddr, keys[i], sizeof(escaped_macaddr));
+                escape_json_string(escaped_timestamp,
                     gate_data->timestamp ? gate_data->timestamp : "",
-                    gate_data->time_delta ? gate_data->time_delta : "");
+                    sizeof(escaped_timestamp));
+                escape_json_string(escaped_time_delta,
+                    gate_data->time_delta ? gate_data->time_delta : "",
+                    sizeof(escaped_time_delta));
+
+                pos += snprintf(buffer + pos, 8192 - pos,
+                    "{\"macaddr\":\"%s\",\"timestamp\":\"%s\",\"time_delta\":\"%s\"}",
+                    escaped_macaddr,
+                    escaped_timestamp,
+                    escaped_time_delta);
                 first = false;
 
-                if (pos >= 4000) {
+                if (pos >= 7500) { // Leave more room for closing bracket and null terminator
                     break;
                 }
             }
         }
     }
 
-    pos += snprintf(buffer + pos, 4096 - pos, "]}");
+    pos += snprintf(buffer + pos, 8192 - pos, "]}");
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_send(req, buffer, pos);
