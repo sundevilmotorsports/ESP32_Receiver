@@ -12,11 +12,34 @@ static const char *TAG = "server";
 static struct HashTable table;
 
 static esp_err_t status_get_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+
     const char* resp_str = "OK";
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_send(req, resp_str, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
+
+static esp_err_t cors_options_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD, PATCH");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Credentials", "true");
+
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+static const httpd_uri_t cors_options = {
+    .uri       = "/*",
+    .method    = HTTP_OPTIONS,
+    .handler   = cors_options_handler,
+    .user_ctx  = NULL
+};
 
 static const httpd_uri_t status = {
     .uri       = "/status",
@@ -26,6 +49,11 @@ static const httpd_uri_t status = {
 };
 
 static esp_err_t gate_get_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+
     char** keys = hashtable_list_keys(&table);
 
     if (!keys) {
@@ -34,45 +62,42 @@ static esp_err_t gate_get_handler(httpd_req_t *req) {
         return ESP_OK;
     }
 
-    char* buffer = malloc(2048);
+    char* buffer = malloc(4096);
     if (!buffer) {
         httpd_resp_set_type(req, "text/plain");
         httpd_resp_send(req, "Failed to allocate memory", HTTPD_RESP_USE_STRLEN);
-        free(keys);
         return ESP_OK;
     }
 
-    strcpy(buffer, "{\"gates\":[");
+    int pos = 0;
+    pos += snprintf(buffer + pos, 4096 - pos, "{\"gates\":[");
 
-    /*
-    {
-    "MACADDR": "timestamp"
-    },
-     */
+    bool first = true;
     for (int i = 0; i < table.size; i++) {
         if (keys[i] != NULL) {
-            strcat(buffer, "{");
-            strcat(buffer, "\"");
+            char* value = hashtable_get(&table, keys[i]);
+            if (value != NULL) {
+                if (!first) {
+                    pos += snprintf(buffer + pos, 4096 - pos, ",");
+                }
+                pos += snprintf(buffer + pos, 4096 - pos,
+                    "{\"macaddr\":\"%s\",\"timestamp\":\"%s\"}",
+                    keys[i], value);
+                first = false;
 
-            strcat(buffer, keys[i]);
-
-            strcat(buffer, "\": ");
-
-            strcat(buffer, "\"");
-            strcat(buffer, hashtable_get(&table, keys[i]));
-            strcat(buffer, "\"");
-
-            strcat(buffer, "},");
+                if (pos >= 4000) {
+                    break;
+                }
+            }
         }
     }
 
-    strcat(buffer, "]}");
+    pos += snprintf(buffer + pos, 4096 - pos, "]}");
 
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, buffer, strlen(buffer));
+    httpd_resp_send(req, buffer, pos);
 
     free(buffer);
-    free(keys);
 
     return ESP_OK;
 }
@@ -98,6 +123,7 @@ httpd_handle_t start(void) {
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
+        httpd_register_uri_handler(server, &cors_options);
         httpd_register_uri_handler(server, &status);
         httpd_register_uri_handler(server, &gate);
         return server;
