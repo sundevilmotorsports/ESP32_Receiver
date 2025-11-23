@@ -44,16 +44,25 @@ static esp_err_t gate_get_handler(httpd_req_t *req) {
 
     strcpy(buffer, "{\"gates\":[");
 
-    bool first = true;
+    /*
+    {
+    "MACADDR": "timestamp"
+    },
+     */
     for (int i = 0; i < table.size; i++) {
         if (keys[i] != NULL) {
-            if (!first) {
-                strcat(buffer, ",");
-            }
+            strcat(buffer, "{");
             strcat(buffer, "\"");
+
             strcat(buffer, keys[i]);
+
+            strcat(buffer, "\": ");
+
             strcat(buffer, "\"");
-            first = false;
+            strcat(buffer, hashtable_get(&table, keys[i]));
+            strcat(buffer, "\"");
+
+            strcat(buffer, "},");
         }
     }
 
