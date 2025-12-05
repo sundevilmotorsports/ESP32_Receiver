@@ -86,5 +86,6 @@ bool is_mac_in_list(const uint8_t *mac_addr);
 void send_ack(const uint8_t *dest_mac);
 esp_err_t softap_init(void);
 int mac_index(const uint8_t *mac_addr);
+void send_pings();
 
 #endif //ESP32_RECEIVER_ESP32_RECEIVER_H

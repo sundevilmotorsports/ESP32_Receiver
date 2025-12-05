@@ -23,12 +23,14 @@
 
 #define ESPNOW_QUEUE_SIZE 6
 #define ACK_TIMER_INTERVAL_MS (15 * 1000)
+#define PING_TIMER_INTERVAL_MS (10 * 1000)
 
 static QueueHandle_t s_espnow_queue;
 static mac_address_list_t mac_list = {0};
 static uint8_t s_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
 static TimerHandle_t ack_timer;
+static TimerHandle_t ping_timer;
 
 void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
     snprintf(mac_string, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -37,6 +39,7 @@ void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
 }
 
 static TaskHandle_t ack_task_handle = NULL;
+static TaskHandle_t ping_task_handle = NULL;
 
 void ack_timer_callback(TimerHandle_t xTimer) {
     if (ack_task_handle != NULL) {
@@ -52,6 +55,25 @@ void ack_task(void *pvParameter) {
         ESP_LOGI(TAG, "Broadcasting ACK message");
         send_ack(s_broadcast_mac);
     }
+}
+
+void ping_timer_callback(TimerHandle_t xTimer) {
+    if (ping_task_handle != NULL) {
+        xTaskNotifyGive(ping_task_handle);
+    }
+}
+
+void ping_task(void *pvParameter) {
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        ESP_LOGI(TAG, "Sending pings");
+        send_pings();
+    }
+}
+
+void send_pings() {
+
 }
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
@@ -407,6 +429,8 @@ esp_err_t espnow_init(void) {
     ESP_LOGI(TAG, "ACK timer started - will send ACKs every %d seconds", ACK_TIMER_INTERVAL_MS/1000);
 
     xTaskCreate(espnow_task, "espnow_task", 2048, NULL, 4, NULL);
+
+    ping_timer = xTimerCreate("PING_Timer", pdMS_TO_TICKS(PING_TIMER_INTERVAL_MS), pdTRUE, NULL, );
 
     return ESP_OK;
 }
