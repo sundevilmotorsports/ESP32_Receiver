@@ -24,6 +24,7 @@
 #define ESPNOW_QUEUE_SIZE 6
 #define ACK_TIMER_INTERVAL_MS (15 * 1000)
 #define PING_TIMER_INTERVAL_MS (10 * 1000)
+#define MAX_PING_MS (11 * 1000);
 
 static QueueHandle_t s_espnow_queue;
 static mac_address_list_t mac_list = {0};
@@ -73,7 +74,46 @@ void ping_task(void *pvParameter) {
 }
 
 void send_pings() {
+    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
+    if (buf == NULL) {
+        ESP_LOGE(TAG, "Malloc send buffer fail");
+        return;
+    }
 
+    buf->type = ESPNOW_DATA_PING;
+    buf->seq_num = s_espnow_seq[ESPNOW_DATA_UNICAST]++;
+    buf->crc = 0;
+    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, sizeof(espnow_data_t));
+
+    for (size_t i = 0; i < mac_list.count; i++) {
+        const uint8_t *dest_mac = mac_list.mac_list[i];
+
+        if (!esp_now_is_peer_exist(dest_mac)) {
+            esp_now_peer_info_t peer;
+            memset(&peer, 0, sizeof(esp_now_peer_info_t));
+            peer.channel = 1;
+            peer.ifidx = ESP_IF_WIFI_STA;
+            peer.encrypt = false;
+            memcpy(peer.peer_addr, dest_mac, ESP_NOW_ETH_ALEN);
+            ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+        }
+
+        const esp_err_t ret = esp_now_send(dest_mac, (uint8_t *)buf, sizeof(espnow_data_t));
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Send ping error: %s", esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "Sent ping to " MACSTR, MAC2STR(dest_mac));
+        }
+
+        // TODO: Use task notification for ping responses
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        if (mac_list.lastPings[i] > 11 * 1000) {
+            ESP_LOGW(TAG, "No ping response from: "MACSTR"", MAC2STR(mac_list.mac_list[i]));
+        }
+    }
+
+    free(buf);
 }
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
@@ -230,27 +270,6 @@ void send_ack(const uint8_t *dest_mac) {
     free(buf);
 }
 
-void ping() {
-    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
-    buf->type = ESPNOW_DATA_PING;
-    buf->len = 0;
-
-    for (int i = 0; i < mac_list.count; i++) {
-        esp_err_t ret = esp_now_send(mac_list.mac_list[i], (uint8_t *)buf, sizeof(espnow_data_t));
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Send ping error: %s", esp_err_to_name(ret));
-        } else {
-            ESP_LOGI(TAG, "Sent ping to " MACSTR, MAC2STR(mac_list.mac_list[i]));
-        }
-    }
-}
-
-// void ack_timer_callback(TimerHandle_t xTimer) {
-//     ESP_LOGI(TAG, "Broadcasting ACK message");
-//
-//     send_ack(s_broadcast_mac);
-// }
-
 void espnow_data_prepare(espnow_send_param_t *send_param) {
     espnow_data_t *buf = (espnow_data_t *)send_param->buffer;
 
@@ -322,13 +341,13 @@ void espnow_task(void *pvParameter) {
                 } else if (ret == ESPNOW_DATA_PING) {
                     ESP_LOGI(TAG, "Received ping from "MACSTR"", MAC2STR(recv_cb->mac_addr));
                     int index = mac_index(recv_cb->mac_addr);
-                    mac_list.lastPings[index] = esp_timer_get_time() * 1000;
-
-                    for (int i = 0; i < mac_list.count; i++) {
-                        if (esp_timer_get_time() * 1000 - mac_list.lastPings[i] > 30000) {
-                            ESP_LOGW(TAG, "Lost gate: "MACSTR"", MAC2STR(recv_cb->mac_addr));
-                        }
+                    if (index == -1) {
+                        ESP_LOGW(TAG, "Unable to locate mac in list");
+                        add_mac_to_list(recv_cb->mac_addr);
+                        index = mac_index(recv_cb->mac_addr);
                     }
+
+                    mac_list.lastPings[index] = esp_timer_get_time() * 1000;
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                 }
@@ -426,11 +445,30 @@ esp_err_t espnow_init(void) {
         return ESP_FAIL;
     }
 
-    ESP_LOGI(TAG, "ACK timer started - will send ACKs every %d seconds", ACK_TIMER_INTERVAL_MS/1000);
+    ESP_LOGI(TAG, "ping timer started - will send pings every %d seconds", PING_TIMER_INTERVAL_MS/1000);
+
+    ping_timer = xTimerCreate("ACK_Timer",
+                            pdMS_TO_TICKS(PING_TIMER_INTERVAL_MS),
+                            pdTRUE,  // Auto-reload
+                            NULL,    // Timer ID
+                            ping_timer_callback);
+
+    if (ping_timer == NULL) {
+        ESP_LOGE(TAG, "Failed to create ACK timer");
+        vQueueDelete(s_espnow_queue);
+        esp_now_deinit();
+        return ESP_FAIL;
+    }
+
+    if (xTimerStart(ping_timer, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Failed to start ping timer");
+        xTimerDelete(ping_timer, 0);
+        vQueueDelete(s_espnow_queue);
+        esp_now_deinit();
+        return ESP_FAIL;
+    }
 
     xTaskCreate(espnow_task, "espnow_task", 2048, NULL, 4, NULL);
-
-    ping_timer = xTimerCreate("PING_Timer", pdMS_TO_TICKS(PING_TIMER_INTERVAL_MS), pdTRUE, NULL, );
 
     return ESP_OK;
 }
