@@ -17,6 +17,8 @@
 #include "esp_now.h"
 #include "esp_crc.h"
 #include "ESP32_Receiver.h"
+
+#include "esp_timer.h"
 #include "server.h"
 
 #define ESPNOW_QUEUE_SIZE 6
@@ -32,6 +34,24 @@ void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
     snprintf(mac_string, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
              mac_addr[0], mac_addr[1], mac_addr[2],
              mac_addr[3], mac_addr[4], mac_addr[5]);
+}
+
+static TaskHandle_t ack_task_handle = NULL;
+
+void ack_timer_callback(TimerHandle_t xTimer) {
+    if (ack_task_handle != NULL) {
+        xTaskNotifyGive(ack_task_handle);
+    }
+}
+
+void ack_task(void *pvParameter) {
+    while (1) {
+        // Wait for timer notification
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        ESP_LOGI(TAG, "Broadcasting ACK message");
+        send_ack(s_broadcast_mac);
+    }
 }
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
@@ -188,11 +208,26 @@ void send_ack(const uint8_t *dest_mac) {
     free(buf);
 }
 
-void ack_timer_callback(TimerHandle_t xTimer) {
-    ESP_LOGI(TAG, "Broadcasting ACK message");
+void ping() {
+    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
+    buf->type = ESPNOW_DATA_PING;
+    buf->len = 0;
 
-    send_ack(s_broadcast_mac);
+    for (int i = 0; i < mac_list.count; i++) {
+        esp_err_t ret = esp_now_send(mac_list.mac_list[i], (uint8_t *)buf, sizeof(espnow_data_t));
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Send ping error: %s", esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "Sent ping to " MACSTR, MAC2STR(mac_list.mac_list[i]));
+        }
+    }
 }
+
+// void ack_timer_callback(TimerHandle_t xTimer) {
+//     ESP_LOGI(TAG, "Broadcasting ACK message");
+//
+//     send_ack(s_broadcast_mac);
+// }
 
 void espnow_data_prepare(espnow_send_param_t *send_param) {
     espnow_data_t *buf = (espnow_data_t *)send_param->buffer;
@@ -262,6 +297,16 @@ void espnow_task(void *pvParameter) {
                     } else {
                         ESP_LOGE(TAG, "Invalid payload length: %zu", payload_len);
                     }
+                } else if (ret == ESPNOW_DATA_PING) {
+                    ESP_LOGI(TAG, "Received ping from "MACSTR"", MAC2STR(recv_cb->mac_addr));
+                    int index = mac_index(recv_cb->mac_addr);
+                    mac_list.lastPings[index] = esp_timer_get_time() * 1000;
+
+                    for (int i = 0; i < mac_list.count; i++) {
+                        if (esp_timer_get_time() * 1000 - mac_list.lastPings[i] > 30000) {
+                            ESP_LOGW(TAG, "Lost gate: "MACSTR"", MAC2STR(recv_cb->mac_addr));
+                        }
+                    }
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                 }
@@ -274,6 +319,19 @@ void espnow_task(void *pvParameter) {
                 break;
         }
     }
+}
+
+int mac_index(const uint8_t *mac_addr) {
+    uint8_t idx = 0;
+    for (int i = 0; i < mac_list.count; i++) {
+        if (mac_addr == mac_list.mac_list[i]) {
+            return idx;
+        }
+
+        idx++;
+    }
+
+    return -1;
 }
 
 esp_err_t softap_init(void) {
@@ -375,6 +433,7 @@ void app_main(void) {
     ESP_ERROR_CHECK( ret );
 
     wifi_init();
+    xTaskCreate(ack_task, "ack_task", 3072, NULL, 3, &ack_task_handle);
     softap_init();
     espnow_init();
     xTaskCreatePinnedToCore(server_start, "server", 4098, NULL, 4, NULL, 1);

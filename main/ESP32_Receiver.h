@@ -20,6 +20,7 @@ typedef enum {
 typedef enum {
     ESPNOW_DATA_ACK,
     ESPNOW_DATA_REQUEST,
+    ESPNOW_DATA_PING,
 } espnow_msg_type_t;
 
 typedef enum {
@@ -60,6 +61,7 @@ typedef struct {
 /* MAC address list structure */
 typedef struct {
     uint8_t mac_list[MAX_MAC_ADDRESSES][ESP_NOW_ETH_ALEN];
+    int64_t *lastPings;
     int count;
 } mac_address_list_t;
 
@@ -83,5 +85,6 @@ void add_mac_to_list(const uint8_t *mac_addr);
 bool is_mac_in_list(const uint8_t *mac_addr);
 void send_ack(const uint8_t *dest_mac);
 esp_err_t softap_init(void);
+int mac_index(const uint8_t *mac_addr);
 
 #endif //ESP32_RECEIVER_ESP32_RECEIVER_H

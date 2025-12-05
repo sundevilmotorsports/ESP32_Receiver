@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Clock, Timer, Zap } from "lucide-react";
+import { Timer, Zap, Clock } from "lucide-react";
 
 interface TimingGate {
   macaddr: string;
-  timestamp: string; // ms
-  time_delta: string; // ms
+  timestamp: string;
+  time_delta: string;
 }
 
 interface GatesResponse {
@@ -20,10 +20,10 @@ interface ProcessedGate extends TimingGate {
   deltaFromPrevious?: number;
   timeSinceLastTrigger: number;
   isLatest: boolean;
-  customOrder?: number;
+  customOrder: number;
 }
 
-export default function Home() {
+export default function HomePage() {
   const [gates, setGates] = useState<TimingGate[] | null>(null);
   const [processedGates, setProcessedGates] = useState<ProcessedGate[]>([]);
   const [isConnected, setIsConnected] = useState(false);
@@ -114,10 +114,6 @@ export default function Home() {
     return `${delta.toFixed(3)}s`;
   };
 
-  const formatMacAddress = (mac: string): string => {
-    return mac.toUpperCase().replace(/(.{2})/g, '$1:').slice(0, -1);
-  };
-
   const moveGate = (fromIndex: number, toIndex: number) => {
     const newOrder = [...gateOrder];
     const [movedItem] = newOrder.splice(fromIndex, 1);
@@ -157,7 +153,7 @@ export default function Home() {
       const fromGate = selectedProcessedGates[i];
       const toGate = selectedProcessedGates[i + 1];
 
-      // Calculate time difference based on server timestamps
+      // Calculate time difference based on server timestamps (milliseconds to seconds)
       const timeDiff = (parseInt(toGate.timestamp) - parseInt(fromGate.timestamp)) / 1000;
 
       deltas.push({
@@ -386,11 +382,11 @@ export default function Home() {
                       Time Delta Analysis
                     </h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                      Select 2 or more gates to see timing differences in sequence
+                      Select gates to compare timing differences
                     </p>
 
                     {/* Quick select buttons */}
-                    <div className="mb-4 flex flex-wrap gap-2">
+                    <div className="mb-6 flex flex-wrap gap-2">
                       <button
                         onClick={() => setSelectedGates(gateOrder.slice())}
                         className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400"
@@ -419,74 +415,133 @@ export default function Home() {
                       </button>
                     </div>
 
-                    <div className="mb-4">
-                      <div className={`
-                        px-4 py-2 rounded-lg font-medium text-center
-                        ${selectedGates.length < 2 
-                          ? 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400' 
-                          : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                        }
-                      `}>
-                        {selectedGates.length < 2
-                          ? 'Select at least 2 gates to see deltas'
-                          : `Analyzing ${selectedGates.length} gates in sequence`
-                        }
-                      </div>
-                    </div>
-
-                    {customDeltas.length > 0 && (
-                      <div className="space-y-3">
-                        <h4 className="font-medium text-slate-900 dark:text-slate-100">
-                          Sequence Timing:
-                        </h4>
-                        {customDeltas.map((delta) => (
-                          <div key={`${delta.from}-${delta.to}`} className="flex items-center justify-between p-3 bg-slate-100 dark:bg-slate-700/50 rounded-lg">
-                            <div className="flex items-center space-x-2">
-                              <span className="font-mono text-sm text-slate-700 dark:text-slate-300">
-                                {delta.from.slice(-4)} → {delta.to.slice(-4)}
-                              </span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className={`
-                                font-mono text-sm px-2 py-1 rounded
-                                ${Math.abs(delta.delta) < 1 
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
-                                  : Math.abs(delta.delta) < 5
-                                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                                  : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
-                                }
-                              `}>
-                                {formatDelta(Math.abs(delta.delta))}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-
-                        {customDeltas.length > 0 && (
-                          <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium text-blue-900 dark:text-blue-100">
-                                Net Time Difference:
-                              </span>
-                              <span className="font-mono text-lg font-semibold text-blue-900 dark:text-blue-100">
-                                {(() => {
-                                  const total = customDeltas.reduce((sum, delta) => sum + delta.delta, 0);
-                                  return formatDelta(Math.abs(total));
-                                })()}
-                              </span>
-                            </div>
-                            <div className="text-xs text-blue-700 dark:text-blue-300 mt-1">
-                              From first selected gate to last selected gate
-                            </div>
-                          </div>
-                        )}
+                    {selectedGates.length === 0 && (
+                      <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                        <Timer className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>Select gates to see timing analysis</p>
                       </div>
                     )}
 
-                    {selectedGates.length >= 2 && customDeltas.length === 0 && (
-                      <div className="text-center text-slate-500 dark:text-slate-400 py-4">
-                        <div className="animate-spin w-6 h-6 border-2 border-slate-300 border-t-slate-600 rounded-full mx-auto mb-2"></div>
-                        Calculating deltas...
+                    {selectedGates.length > 0 && (
+                      <div className="space-y-4">
+                        {/* Selected Gates Display */}
+                        <div className="grid gap-3">
+                          {selectedGates.map((macaddr, index) => {
+                            const gate = processedGates.find(g => g.macaddr === macaddr);
+                            if (!gate) return null;
+
+                            const orderIndex = gateOrder.indexOf(macaddr);
+                            const color = getActivityColor(gate.timeSinceLastTrigger);
+                            const isFirst = index === 0;
+                            const isLast = index === selectedGates.length - 1;
+
+                            return (
+                              <div key={macaddr} className="relative">
+                                {/* Connection line to next gate */}
+                                {!isLast && (
+                                  <div className="absolute left-6 top-16 w-0.5 h-6 bg-gradient-to-b from-blue-400 to-blue-600 z-10" />
+                                )}
+
+                                <div className={`
+                                  flex items-center justify-between p-4 rounded-lg border-2 transition-all
+                                  ${isFirst ? 'border-green-300 bg-green-50 dark:bg-green-950/20 dark:border-green-700' :
+                                    isLast ? 'border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-700' :
+                                    'border-blue-300 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-700'
+                                  }
+                                `}>
+                                  <div className="flex items-center space-x-3">
+                                    <div className={`
+                                      w-10 h-10 rounded-full flex items-center justify-center font-semibold text-white text-sm
+                                      ${isFirst ? 'bg-green-500' : isLast ? 'bg-red-500' : 'bg-blue-500'}
+                                    `}>
+                                      {orderIndex + 1}
+                                    </div>
+                                    <div>
+                                      <p className="font-mono text-sm text-slate-900 dark:text-slate-100">
+                                        {macaddr.slice(-8).toUpperCase()}
+                                      </p>
+                                      <p className="text-xs text-slate-600 dark:text-slate-400">
+                                        {isFirst ? 'Start Gate' : isLast ? 'End Gate' : `Gate ${index + 1}`}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center space-x-4">
+                                    <div className="text-right">
+                                      <p className="text-xs text-slate-600 dark:text-slate-400">Time Delta</p>
+                                      <p className={`
+                                        font-mono text-sm px-2 py-1 rounded
+                                        ${color === 'green' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                                          color === 'yellow' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                                          color === 'orange' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' :
+                                          'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                        }
+                                      `}>
+                                        {formatDelta(gate.timeSinceLastTrigger)}
+                                      </p>
+                                    </div>
+
+                                    {!isLast && customDeltas[index] && (
+                                      <>
+                                        <div className="w-px h-8 bg-slate-300 dark:bg-slate-600" />
+                                        <div className="text-right">
+                                          <p className="text-xs text-slate-600 dark:text-slate-400">Time to Next</p>
+                                          <p className={`
+                                            font-mono text-sm px-2 py-1 rounded font-semibold
+                                            ${Math.abs(customDeltas[index].delta) < 1 ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                                              Math.abs(customDeltas[index].delta) < 5 ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
+                                              'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400'
+                                            }
+                                          `}>
+                                            {customDeltas[index].delta >= 0 ? '+' : ''}{formatDelta(Math.abs(customDeltas[index].delta))}
+                                          </p>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Summary Statistics */}
+                        {customDeltas.length > 0 && (
+                          <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                              <div className="text-center">
+                                <p className="text-sm text-blue-700 dark:text-blue-300 mb-1">Total Time</p>
+                                <p className="font-mono text-xl font-semibold text-blue-900 dark:text-blue-100">
+                                  {(() => {
+                                    const total = customDeltas.reduce((sum, delta) => sum + delta.delta, 0);
+                                    return formatDelta(Math.abs(total));
+                                  })()}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="p-4 bg-green-50 dark:bg-green-950/20 rounded-lg border border-green-200 dark:border-green-800">
+                              <div className="text-center">
+                                <p className="text-sm text-green-700 dark:text-green-300 mb-1">Fastest Split</p>
+                                <p className="font-mono text-xl font-semibold text-green-900 dark:text-green-100">
+                                  {formatDelta(Math.min(...customDeltas.map(d => Math.abs(d.delta))))}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="p-4 bg-purple-50 dark:bg-purple-950/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                              <div className="text-center">
+                                <p className="text-sm text-purple-700 dark:text-purple-300 mb-1">Average Split</p>
+                                <p className="font-mono text-xl font-semibold text-purple-900 dark:text-purple-100">
+                                  {(() => {
+                                    const avg = customDeltas.reduce((sum, delta) => sum + Math.abs(delta.delta), 0) / customDeltas.length;
+                                    return formatDelta(avg);
+                                  })()}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -536,25 +591,15 @@ export default function Home() {
                             <div>
                               <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">MAC Address</p>
                               <p className="font-mono text-sm text-slate-900 dark:text-slate-100">
-                                {formatMacAddress(gate.macaddr)}
+                                {gate.macaddr.toUpperCase()}
                               </p>
                             </div>
 
                             <div>
                               <p className="text-sm text-slate-600 dark:text-slate-400 mb-1">
-                                Delta since last trigger
+                                Delta
                               </p>
-                              <span className={`
-                                font-mono text-sm px-2 py-1 rounded
-                                ${color === 'green'
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
-                                  : color === 'yellow'
-                                  ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                                  : color === 'orange'
-                                  ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
-                                  : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                                }
-                              `}>
+                              <span className={`font-mono text-sm px-2 py-1 rounded`}>
                                 {formatDelta(gate.timeSinceLastTrigger)}
                               </span>
                             </div>
