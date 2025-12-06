@@ -24,32 +24,17 @@ struct HashTable hashtable_create() {
     return table;
 }
 
-void hashtable_insert(struct HashTable *table, char *key, struct GateData *value) {
+void hashtable_insert(struct HashTable *table, const char *key, const char *value) {
     if (table == NULL || key == NULL) {
         return;
     }
 
     int index = key_hash(key);
     table->bucket[index] = strdup(key);
-
-    // Free existing GateData if it exists
-    if (table->values[index] != NULL) {
-        if (table->values[index]->timestamp != NULL) {
-            free(table->values[index]->timestamp);
-        }
-        if (table->values[index]->time_delta != NULL) {
-            free(table->values[index]->time_delta);
-        }
-        free(table->values[index]);
-    }
-
-    // Allocate new GateData and copy values
-    table->values[index] = malloc(sizeof(struct GateData));
-    table->values[index]->timestamp = value && value->timestamp ? strdup(value->timestamp) : NULL;
-    table->values[index]->time_delta = value && value->time_delta ? strdup(value->time_delta) : NULL;
+    table->values[index] = strdup(value);
 }
 
-struct GateData *hashtable_get(struct HashTable *table, char *key) {
+const char *hashtable_get(struct HashTable *table, char *key) {
     if (table == NULL || key == NULL) {
         return NULL;
     }

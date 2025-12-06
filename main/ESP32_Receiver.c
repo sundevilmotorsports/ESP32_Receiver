@@ -39,6 +39,26 @@ void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
              mac_addr[3], mac_addr[4], mac_addr[5]);
 }
 
+const char *create_mac_json_list() {
+    const size_t len = mac_list.count + 4 + sizeof(uint8_t) * 6 * mac_list.count;
+    char* buf = malloc(len);
+    if (!buf) {
+        ESP_LOGW(TAG, "Failed to allocate memory!");
+        return NULL;
+    }
+
+    int pos = 0;
+    pos += snprintf(buf + pos, len - pos, "[");
+
+    for (size_t i = 0; i < mac_list.count; i++) {
+        pos += snprintf(buf + pos, len - pos, ""MACSTR"", MAC2STR(mac_list.mac_list[i]));
+    }
+
+    pos += snprintf(buf + pos, len - pos, "]");
+
+    return buf;
+}
+
 static TaskHandle_t ack_task_handle = NULL;
 static TaskHandle_t ping_task_handle = NULL;
 
@@ -313,7 +333,10 @@ void espnow_task(void *pvParameter) {
                     add_mac_to_list(recv_cb->mac_addr);
                     char mac_string[18];
                     mac_to_string(recv_cb->mac_addr, mac_string);
-                    addGate(mac_string);
+
+                    const char* macs = create_mac_json_list();
+
+                    addString("gates", macs);
                 } else if (ret == ESPNOW_DATA_REQUEST) {
                     ESP_LOGI(TAG, "Received request from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
 
@@ -329,7 +352,7 @@ void espnow_task(void *pvParameter) {
                             char mac_addr_string[18];
                             mac_to_string(recv_cb->mac_addr, mac_addr_string);
 
-                            addTime(mac_addr_string, buffer);
+                            addString(mac_addr_string, buffer);
 
                             free(buffer);
                         } else {

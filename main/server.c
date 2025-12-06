@@ -99,19 +99,94 @@ static void escape_json_string(char* dest, const char* src, size_t dest_size) {
     dest[dest_pos] = '\0';
 }
 
-static esp_err_t gate_get_handler(httpd_req_t *req) {
+// static esp_err_t gate_get_handler(httpd_req_t *req) {
+//     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+//     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "*");
+//     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
+//     httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+//
+//     char** keys = hashtable_list_keys(&table);
+//
+//     if (!keys) {
+//         httpd_resp_set_type(req, "application/json");
+//         httpd_resp_send(req, "{\"gates\":[]}", HTTPD_RESP_USE_STRLEN);
+//         return ESP_OK;
+//     }
+//
+//     char* buffer = malloc(8192);
+//     if (!buffer) {
+//         httpd_resp_set_type(req, "text/plain");
+//         httpd_resp_send(req, "Failed to allocate memory", HTTPD_RESP_USE_STRLEN);
+//         return ESP_OK;
+//     }
+//
+//     char escaped_macaddr[128];
+//     char escaped_timestamp[128];
+//     char escaped_time_delta[128];
+//
+//     int pos = 0;
+//     pos += snprintf(buffer + pos, 8192 - pos, "{\"gates\":[");
+//
+//     bool first = true;
+//     for (int i = 0; i < table.size; i++) {
+//         if (keys[i] != NULL) {
+//             struct GateData* gate_data = hashtable_get(&table, keys[i]);
+//             if (gate_data != NULL) {
+//                 if (!first) {
+//                     pos += snprintf(buffer + pos, 8192 - pos, ",");
+//                 }
+//
+//                 // Escape each field properly
+//                 escape_json_string(escaped_macaddr, keys[i], sizeof(escaped_macaddr));
+//                 escape_json_string(escaped_timestamp,
+//                     gate_data->timestamp ? gate_data->timestamp : "",
+//                     sizeof(escaped_timestamp));
+//                 escape_json_string(escaped_time_delta,
+//                     gate_data->time_delta ? gate_data->time_delta : "",
+//                     sizeof(escaped_time_delta));
+//
+//                 pos += snprintf(buffer + pos, 8192 - pos,
+//                     "{\"macaddr\":\"%s\",\"timestamp\":\"%s\",\"time_delta\":\"%s\"}",
+//                     escaped_macaddr,
+//                     escaped_timestamp,
+//                     escaped_time_delta);
+//                 first = false;
+//
+//                 if (pos >= 7500) { // Leave more room for closing bracket and null terminator
+//                     break;
+//                 }
+//             }
+//         }
+//     }
+//
+//     pos += snprintf(buffer + pos, 8192 - pos, "]}");
+//
+//     httpd_resp_set_type(req, "application/json");
+//     httpd_resp_send(req, buffer, pos);
+//
+//     free(buffer);
+//
+//     return ESP_OK;
+// }
+//
+// static const httpd_uri_t gate = {
+//     .uri       = "/gates",
+//     .method    = HTTP_GET,
+//     .handler   = gate_get_handler,
+//     .user_ctx  = NULL
+// };
+
+void addString(const char* key, const char* value) {
+    hashtable_insert(&table, key, value);
+}
+
+static esp_err_t telemetry_get_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
     httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
 
-    char** keys = hashtable_list_keys(&table);
-
-    if (!keys) {
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, "{\"gates\":[]}", HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
+    char* uri = req->uri; // probably the entire uri, need to trim
 
     char* buffer = malloc(8192);
     if (!buffer) {
@@ -120,59 +195,26 @@ static esp_err_t gate_get_handler(httpd_req_t *req) {
         return ESP_OK;
     }
 
-    char escaped_macaddr[128];
-    char escaped_timestamp[128];
-    char escaped_time_delta[128];
+    const char* response = hashtable_get(&table, uri);
 
-    int pos = 0;
-    pos += snprintf(buffer + pos, 8192 - pos, "{\"gates\":[");
-
-    bool first = true;
-    for (int i = 0; i < table.size; i++) {
-        if (keys[i] != NULL) {
-            struct GateData* gate_data = hashtable_get(&table, keys[i]);
-            if (gate_data != NULL) {
-                if (!first) {
-                    pos += snprintf(buffer + pos, 8192 - pos, ",");
-                }
-
-                // Escape each field properly
-                escape_json_string(escaped_macaddr, keys[i], sizeof(escaped_macaddr));
-                escape_json_string(escaped_timestamp,
-                    gate_data->timestamp ? gate_data->timestamp : "",
-                    sizeof(escaped_timestamp));
-                escape_json_string(escaped_time_delta,
-                    gate_data->time_delta ? gate_data->time_delta : "",
-                    sizeof(escaped_time_delta));
-
-                pos += snprintf(buffer + pos, 8192 - pos,
-                    "{\"macaddr\":\"%s\",\"timestamp\":\"%s\",\"time_delta\":\"%s\"}",
-                    escaped_macaddr,
-                    escaped_timestamp,
-                    escaped_time_delta);
-                first = false;
-
-                if (pos >= 7500) { // Leave more room for closing bracket and null terminator
-                    break;
-                }
-            }
-        }
+    if (response == NULL) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "NULL", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
     }
 
-    pos += snprintf(buffer + pos, 8192 - pos, "]}");
-
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, buffer, pos);
+    httpd_resp_send(req, buffer, HTTPD_RESP_USE_STRLEN);
 
     free(buffer);
 
     return ESP_OK;
 }
 
-static const httpd_uri_t gate = {
-    .uri       = "/gates",
+static const httpd_uri_t telemetry = {
+    .uri       = "/telemetry/*",
     .method    = HTTP_GET,
-    .handler   = gate_get_handler,
+    .handler   = telemetry_get_handler,
     .user_ctx  = NULL
 };
 
@@ -196,7 +238,8 @@ httpd_handle_t start(void) {
     if (httpd_start(&server, &config) == ESP_OK) {
         httpd_register_uri_handler(server, &cors_options);
         httpd_register_uri_handler(server, &status);
-        httpd_register_uri_handler(server, &gate);
+        // httpd_register_uri_handler(server, &gate);
+        httpd_register_uri_handler(server, &telemetry);
         return server;
     }
 
@@ -216,11 +259,6 @@ esp_err_t server_stop(httpd_handle_t server) {
     return httpd_stop(server);
 }
 
-void addGate(char* macaddr) {
-    struct GateData gate_data = {NULL, NULL};
-    hashtable_insert(&table, macaddr, &gate_data);
-}
-
 char* getCurrentTimestamp() {
     static char timestamp[32];
 
@@ -228,13 +266,4 @@ char* getCurrentTimestamp() {
 
     snprintf(timestamp, sizeof(timestamp), "%llu", uptime_ms);
     return timestamp;
-}
-
-void addTime(char* macaddr, char* time_delta) {
-    struct GateData new_data;
-
-    new_data.timestamp = getCurrentTimestamp();
-    new_data.time_delta = time_delta;
-
-    hashtable_insert(&table, macaddr, &new_data);
 }
