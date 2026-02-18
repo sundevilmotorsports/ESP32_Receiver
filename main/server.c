@@ -8,6 +8,15 @@
 #include <stdbool.h>
 #include "hash.h"
 
+extern const uint8_t index_html_start[] asm("_binary_index_html_start");
+extern const uint8_t index_html_end[] asm("_binary_index_html_end");
+
+extern const uint8_t index_css_start[] asm("_binary_index_css_start");
+extern const uint8_t index_css_end[] asm("_binary_index_css_end");
+
+extern const uint8_t index_js_start[] asm("_binary_index_js_start");
+extern const uint8_t index_js_end[] asm("_binary_index_js_end");
+
 static const char *TAG = "server";
 
 static struct HashTable table;
@@ -184,19 +193,58 @@ void addString(const char* key, const char* value) {
     hashtable_insert(&table, key, value);
 }
 
+static esp_err_t root_get_handler(httpd_req_t *req) {
+    set_cors(req);
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, (const char *)index_html_start, index_html_end - index_html_start);
+    return ESP_OK;
+}
+static esp_err_t index_css_get_handler(httpd_req_t *req) {
+    set_cors(req);
+    httpd_resp_set_type(req, "text/css");
+    httpd_resp_send(req, (const char *)index_css_start, index_css_end - index_css_start);
+    return ESP_OK;
+}
+
+static esp_err_t index_js_get_handler(httpd_req_t *req) {
+    set_cors(req);
+    httpd_resp_set_type(req, "application/javascript");
+    httpd_resp_send(req, (const char *)index_js_start, index_js_end - index_js_start);
+    return ESP_OK;
+}
+
+static const httpd_uri_t root = {
+    .uri       = "/",
+    .method    = HTTP_GET,
+    .handler   = root_get_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t index_css = {
+    .uri       = "/assets/index.css",
+    .method    = HTTP_GET,
+    .handler   = index_css_get_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t index_js = {
+    .uri       = "/assets/index.js",
+    .method    = HTTP_GET,
+    .handler   = index_js_get_handler,
+    .user_ctx  = NULL
+};
+
 static esp_err_t telemetry_get_handler(httpd_req_t *req) {
     set_cors(req);
 
-    const char* uri = req->uri; // probably the entire uri, need to trim
+    const char* uri = req->uri;
 
-    char* buffer = malloc(8192);
-    if (!buffer) {
-        httpd_resp_set_type(req, "text/plain");
-        httpd_resp_send(req, "Failed to allocate memory", HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
+    // Extract the key from the URI (everything after /telemetry/)
+    const char* key = uri + strlen("/telemetry/");
 
-    const char* response = hashtable_get(&table, uri);
+    ESP_LOGI(TAG, "Telemetry request for key: %s", key);
+
+    const char* response = hashtable_get(&table, key);
 
     if (response == NULL) {
         httpd_resp_set_type(req, "text/plain");
@@ -205,7 +253,56 @@ static esp_err_t telemetry_get_handler(httpd_req_t *req) {
     }
 
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, buffer, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
+
+static esp_err_t telemetry_all_get_handler(httpd_req_t *req) {
+    set_cors(req);
+
+    char** keys = hashtable_list_keys(&table);
+
+    if (!keys) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "[]", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+
+    char* buffer = malloc(8192);
+    if (!buffer) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "Failed to allocate memory", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+
+    int pos = 0;
+    pos += snprintf(buffer + pos, 8192 - pos, "[");
+
+    bool first = true;
+    for (int i = 0; i < table.size; i++) {
+        if (keys[i] != NULL) {
+            const char* value = hashtable_get(&table, keys[i]);
+            if (value != NULL) {
+                if (!first) {
+                    pos += snprintf(buffer + pos, 8192 - pos, ",");
+                }
+                pos += snprintf(buffer + pos, 8192 - pos,
+                    "{\"key\":\"%s\",\"value\":\"%s\"}",
+                    keys[i], value);
+                first = false;
+
+                if (pos >= 7500) {
+                    break;
+                }
+            }
+        }
+    }
+
+    pos += snprintf(buffer + pos, 8192 - pos, "]");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, buffer, pos);
 
     free(buffer);
 
@@ -216,6 +313,13 @@ static const httpd_uri_t telemetry = {
     .uri       = "/telemetry/*",
     .method    = HTTP_GET,
     .handler   = telemetry_get_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t telemetry_all = {
+    .uri       = "/telemetry",
+    .method    = HTTP_GET,
+    .handler   = telemetry_all_get_handler,
     .user_ctx  = NULL
 };
 
@@ -242,7 +346,13 @@ httpd_handle_t start(void) {
         httpd_register_uri_handler(server, &cors_options);
         httpd_register_uri_handler(server, &status);
         // httpd_register_uri_handler(server, &gate);
+        httpd_register_uri_handler(server, &telemetry_all);
         httpd_register_uri_handler(server, &telemetry);
+
+        httpd_register_uri_handler(server, &root);
+        httpd_register_uri_handler(server, &index_css);
+        httpd_register_uri_handler(server, &index_js);
+
         return server;
     }
 
