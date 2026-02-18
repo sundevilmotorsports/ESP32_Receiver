@@ -12,11 +12,15 @@ static const char *TAG = "server";
 
 static struct HashTable table;
 
-static esp_err_t status_get_handler(httpd_req_t *req) {
+void set_cors(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
     httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+}
+
+static esp_err_t status_get_handler(httpd_req_t *req) {
+    set_cors(req);
 
     const char* resp_str = "OK";
     httpd_resp_set_type(req, "text/plain");
@@ -181,12 +185,9 @@ void addString(const char* key, const char* value) {
 }
 
 static esp_err_t telemetry_get_handler(httpd_req_t *req) {
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Max-Age", "86400");
+    set_cors(req);
 
-    char* uri = req->uri; // probably the entire uri, need to trim
+    const char* uri = req->uri; // probably the entire uri, need to trim
 
     char* buffer = malloc(8192);
     if (!buffer) {
@@ -228,6 +229,8 @@ httpd_handle_t start(void) {
     // hashtable_insert(&table, "gate1", &gate1_data);
     // hashtable_insert(&table, "gate2", &gate2_data);
     // hashtable_insert(&table, "gate3", &gate3_data);
+
+    hashtable_insert(&table, "test", "value");
 
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
