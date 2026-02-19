@@ -1,5 +1,4 @@
 import './App.css'
-import {useTheme} from "../components/theme-provider.tsx";
 
 function App() {
   return (
