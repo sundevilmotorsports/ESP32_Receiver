@@ -20,7 +20,7 @@ struct HashTable hashtable_create() {
     struct HashTable table;
     table.size = TABLE_SIZE;
     table.bucket = calloc(TABLE_SIZE, sizeof(char*));
-    table.values = calloc(TABLE_SIZE, sizeof(struct GateData*));
+    table.values = calloc(TABLE_SIZE, sizeof(char*));
     return table;
 }
 
