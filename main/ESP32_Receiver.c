@@ -131,10 +131,10 @@ void send_pings() {
 
         ESP_LOGI(TAG, "Macs:");
         for (size_t i = 0; i < mac_list.count; i++) {
-            ESP_LOGI(TAG, "%02x:%02x:%02x:%02x:%02x:%02x", mac_list.mac_list[i]);
+            ESP_LOGI(TAG, MACSTR, MAC2STR(mac_list.mac_list[i]));
         }
 
-        if (mac_list.lastPings[i] > 11 * 1000) {
+        if ((esp_timer_get_time() - mac_list.lastPings[i]) > 11 * 1000 * 1000ULL) {
             ESP_LOGW(TAG, "No ping response from: "MACSTR"", MAC2STR(mac_list.mac_list[i]));
         }
     }
@@ -376,7 +376,7 @@ void espnow_task(void *pvParameter) {
                         index = mac_index(recv_cb->mac_addr);
                     }
 
-                    mac_list.lastPings[index] = esp_timer_get_time() * 1000;
+                    mac_list.lastPings[index] = esp_timer_get_time();
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                 }
@@ -528,5 +528,5 @@ void app_main(void) {
     softap_init();
     espnow_init();
     xTaskCreatePinnedToCore(server_start, "server", 4098, NULL, 4, NULL, 1);
-    xTaskCreate(ping_task, "ping", 1024, NULL, 5, NULL);
+    xTaskCreate(ping_task, "ping", 4096, NULL, 5, &ping_task_handle);
 }

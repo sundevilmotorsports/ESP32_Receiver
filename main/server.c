@@ -350,17 +350,45 @@ static esp_err_t get_gates_handler(httpd_req_t *req) {
 static esp_err_t get_gate_data_handler(httpd_req_t *req) {
     set_cors(req);
 
-    const char* response = timing_gates;
-
-    if (response == NULL) {
-        httpd_resp_set_type(req, "text/plain");
-        httpd_resp_send(req, "NULL", HTTPD_RESP_USE_STRLEN);
+    char** keys = hashtable_list_keys(&gates);
+    if (!keys) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_send(req, "[]", HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
 
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+    char* buffer = malloc(8192);
+    if (!buffer) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "Failed to allocate memory", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
 
+    int pos = 0;
+    pos += snprintf(buffer + pos, 8192 - pos, "[");
+
+    bool first = true;
+    for (int i = 0; i < gates.size; i++) {
+        if (keys[i] != NULL) {
+            const char* value = hashtable_get(&gates, keys[i]);
+            if (value != NULL) {
+                if (!first) pos += snprintf(buffer + pos, 8192 - pos, ",");
+                // value is "timestamp_us,diff_us"
+                int64_t timestamp_us, diff_us;
+                sscanf(value, "%lld,%lld", &timestamp_us, &diff_us);
+                pos += snprintf(buffer + pos, 8192 - pos,
+                    "{\"mac\":\"%s\",\"timestamp_us\":%lld,\"diff_us\":%lld}",
+                    keys[i], timestamp_us, diff_us);
+                first = false;
+                if (pos >= 7500) break;
+            }
+        }
+    }
+
+    pos += snprintf(buffer + pos, 8192 - pos, "]");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, buffer, pos);
+    free(buffer);
     return ESP_OK;
 }
 
@@ -416,6 +444,7 @@ httpd_handle_t start(void) {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 3000;
+    config.max_uri_handlers = 10;
     config.lru_purge_enable = true;
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);

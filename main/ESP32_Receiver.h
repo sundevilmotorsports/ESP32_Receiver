@@ -60,7 +60,7 @@ typedef struct __attribute__((packed)) {
 /* MAC address list structure */
 typedef struct {
     uint8_t mac_list[MAX_MAC_ADDRESSES][ESP_NOW_ETH_ALEN];
-    int64_t *lastPings;
+    int64_t lastPings[MAX_MAC_ADDRESSES];
     int count;
 } mac_address_list_t;
 
