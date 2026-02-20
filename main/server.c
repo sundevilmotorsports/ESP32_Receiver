@@ -282,14 +282,41 @@ esp_err_t send_ident_command(const uint8_t* dest_mac) {
 static esp_err_t identify_gate_handler(httpd_req_t *req) {
     set_cors(req);
 
-    const char* uri = req->uri;
+    char content[100];
+    size_t recv_size = (req->content_len < sizeof(content) - 1) ? req->content_len : sizeof(content) - 1;
 
-    const char* dest_mac_str = uri + strlen("/ident/");
+    int ret = httpd_req_recv(req, content, recv_size);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
 
-    ESP_LOGI(TAG, "Requested to identify timing gate: %s", dest_mac_str);
+    content[ret] = '\0';
 
-    uint8_t* dest_mac = string_to_mac(dest_mac_str);
-    return send_ident_command(dest_mac);
+    ESP_LOGI(TAG, "Received POST data: %s", content);
+    ESP_LOGI(TAG, "Requested to identify timing gate: %s", content);
+
+    uint8_t* dest_mac = string_to_mac(content);
+    if (!dest_mac) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "Invalid MAC address format", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    esp_err_t result = send_ident_command(dest_mac);
+    free(dest_mac);
+
+    if (result == ESP_OK) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
+    } else {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "Failed to send ident command", HTTPD_RESP_USE_STRLEN);
+    }
+
+    return result;
 }
 
 static const httpd_uri_t telemetry = {
@@ -307,7 +334,7 @@ static const httpd_uri_t telemetry_all = {
 };
 
 static const httpd_uri_t identify_gate = {
-    .uri       = "/ident/*",
+    .uri       = "/ident",
     .method    = HTTP_POST,
     .handler   = identify_gate_handler,
     .user_ctx  = NULL

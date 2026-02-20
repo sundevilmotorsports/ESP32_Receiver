@@ -3,7 +3,7 @@
 
 #define MAX_MAC_ADDRESSES 50
 #define ESPNOW_MAXDELAY 512
-#define SOFTAP_SSID "Timing Gate"
+#define SOFTAP_SSID "SDM Telemetry"
 #define SOFTAP_PASS "244466666"
 #define SOFTAP_CHANNEL 1
 #define MAX_STA_CONN 4
