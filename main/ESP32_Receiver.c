@@ -497,7 +497,7 @@ esp_err_t espnow_init(void) {
         return ESP_FAIL;
     }
 
-    xTaskCreate(espnow_task, "espnow_task", 2048, NULL, 4, NULL);
+    xTaskCreate(espnow_task, "espnow_task", 4096, NULL, 4, NULL);
 
     return ESP_OK;
 }
