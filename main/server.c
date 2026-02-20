@@ -23,6 +23,17 @@ extern const uint8_t index_js_end[] asm("_binary_index_js_end");
 static const char *TAG = "server";
 
 static struct HashTable table;
+static struct HashTable gates;
+
+char* timing_gates;
+
+void setGates(char* gates) {
+    timing_gates = gates;
+}
+
+void addGateTime(const char* mac_addr, const char* data) {
+    hashtable_insert(&gates, mac_addr, data);
+}
 
 void set_cors(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -319,6 +330,40 @@ static esp_err_t identify_gate_handler(httpd_req_t *req) {
     return result;
 }
 
+static esp_err_t get_gates_handler(httpd_req_t *req) {
+    set_cors(req);
+
+    const char* response = timing_gates;
+
+    if (response == NULL) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "NULL", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
+
+static esp_err_t get_gate_data_handler(httpd_req_t *req) {
+    set_cors(req);
+
+    const char* response = timing_gates;
+
+    if (response == NULL) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "NULL", HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
+
+    return ESP_OK;
+}
+
 static const httpd_uri_t telemetry = {
     .uri       = "/telemetry/*",
     .method    = HTTP_GET,
@@ -340,8 +385,23 @@ static const httpd_uri_t identify_gate = {
     .user_ctx  = NULL
 };
 
+static const httpd_uri_t get_gates = {
+    .uri       = "/gates",
+    .method    = HTTP_GET,
+    .handler   = get_gates_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t get_gates_data = {
+    .uri       = "/timing",
+    .method    = HTTP_GET,
+    .handler   = get_gate_data_handler,
+    .user_ctx  = NULL
+};
+
 httpd_handle_t start(void) {
     table = hashtable_create();
+    gates = hashtable_create();
 
     // struct GateData gate1_data = {"1000", "1.5"};
     // struct GateData gate2_data = {"2000", "2.3"};
@@ -362,7 +422,6 @@ httpd_handle_t start(void) {
     if (httpd_start(&server, &config) == ESP_OK) {
         httpd_register_uri_handler(server, &cors_options);
         httpd_register_uri_handler(server, &status);
-        // httpd_register_uri_handler(server, &gate);
         httpd_register_uri_handler(server, &telemetry_all);
         httpd_register_uri_handler(server, &telemetry);
 
@@ -371,6 +430,8 @@ httpd_handle_t start(void) {
         httpd_register_uri_handler(server, &index_js);
 
         httpd_register_uri_handler(server, &identify_gate);
+        httpd_register_uri_handler(server, &get_gates);
+        httpd_register_uri_handler(server, &get_gates_data);
 
         return server;
     }

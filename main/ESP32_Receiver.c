@@ -129,6 +129,11 @@ void send_pings() {
         // TODO: Use task notification for ping responses
         vTaskDelay(pdMS_TO_TICKS(50));
 
+        ESP_LOGI(TAG, "Macs:");
+        for (size_t i = 0; i < mac_list.count; i++) {
+            ESP_LOGI(TAG, "%02x:%02x:%02x:%02x:%02x:%02x", mac_list.mac_list[i]);
+        }
+
         if (mac_list.lastPings[i] > 11 * 1000) {
             ESP_LOGW(TAG, "No ping response from: "MACSTR"", MAC2STR(mac_list.mac_list[i]));
         }
@@ -217,7 +222,7 @@ int espnow_data_parse(uint8_t *data, uint16_t data_len, uint8_t *state, uint16_t
     espnow_data_t *buf = (espnow_data_t *)data;
     uint16_t crc, crc_cal = 0;
 
-    if (data_len < sizeof(espnow_data_t)) {
+    if (data_len < offsetof(espnow_data_t, data)) {
         ESP_LOGE(TAG, "Receive ESPNOW data too short, len:%d", data_len);
         return -1;
     }
@@ -337,15 +342,15 @@ void espnow_task(void *pvParameter) {
 
                     const char* macs = create_mac_json_list();
 
-                    addString("gates", macs);
+                    setGates(macs);
                 } else if (ret == ESPNOW_DATA_REQUEST) {
                     ESP_LOGI(TAG, "Received request from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
 
                     size_t payload_len = packet->len;
-                    if (payload_len > 0 && payload_len <= sizeof(packet->payload)) {
+                    if (payload_len > 0 && payload_len <= sizeof(packet->data)) {
                         char* buffer = malloc(payload_len + 1);
                         if (buffer != NULL) {
-                            memcpy(buffer, packet->payload, payload_len);
+                            memcpy(buffer, packet->data, payload_len);
                             buffer[payload_len] = '\0';
 
                             ESP_LOGI(TAG, "Received data: %s", buffer);
@@ -353,7 +358,7 @@ void espnow_task(void *pvParameter) {
                             char mac_addr_string[18];
                             mac_to_string(recv_cb->mac_addr, mac_addr_string);
 
-                            addString(mac_addr_string, buffer);
+                            addGateTime(mac_addr_string, buffer);
 
                             free(buffer);
                         } else {
@@ -389,7 +394,7 @@ void espnow_task(void *pvParameter) {
 int mac_index(const uint8_t *mac_addr) {
     uint8_t idx = 0;
     for (int i = 0; i < mac_list.count; i++) {
-        if (mac_addr == mac_list.mac_list[i]) {
+        if (memcmp(mac_addr, mac_list.mac_list[i], ESP_NOW_ETH_ALEN) == 0) {
             return idx;
         }
 
@@ -523,4 +528,5 @@ void app_main(void) {
     softap_init();
     espnow_init();
     xTaskCreatePinnedToCore(server_start, "server", 4098, NULL, 4, NULL, 1);
+    xTaskCreate(ping_task, "ping", 1024, NULL, 5, NULL);
 }

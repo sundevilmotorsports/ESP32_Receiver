@@ -49,13 +49,13 @@ typedef struct {
     event_info_t info;
 } espnow_event_t;
 
-typedef struct {
-    espnow_msg_type_t type;               // ACK or Request type
-    uint16_t seq_num;                     //Sequence number of ESPNOW data.
-    uint16_t crc;                         //CRC16 value of ESPNOW data.
-    size_t len;
-    uint8_t payload[1430];                   //Real payload of ESPNOW data.
-} __attribute__((packed)) espnow_data_t;
+typedef struct __attribute__((packed)) {
+    uint8_t  type;
+    uint16_t seq_num;
+    uint16_t crc;
+    uint8_t  len;
+    uint8_t  data[200];
+} espnow_data_t;
 
 /* MAC address list structure */
 typedef struct {
