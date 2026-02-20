@@ -29,9 +29,10 @@
 static QueueHandle_t s_espnow_queue;
 static mac_address_list_t mac_list = {0};
 static uint8_t s_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-static uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
 static TimerHandle_t ack_timer;
 static TimerHandle_t ping_timer;
+
+static const char *TAG = "receiver";
 
 void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
     snprintf(mac_string, 18, "%02x:%02x:%02x:%02x:%02x:%02x",

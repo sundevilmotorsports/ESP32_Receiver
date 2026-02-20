@@ -10,8 +10,6 @@
 
 #include "esp_now.h"
 
-static const char *TAG = "espnow_receiver";
-
 typedef enum {
     ESPNOW_SEND_CB,
     ESPNOW_RECV_CB,
@@ -21,6 +19,7 @@ typedef enum {
     ESPNOW_DATA_ACK,
     ESPNOW_DATA_REQUEST,
     ESPNOW_DATA_PING,
+    ESPNOW_GATE_IDENT,
 } espnow_msg_type_t;
 
 typedef enum {
@@ -73,6 +72,8 @@ typedef struct {
     uint8_t *buffer;                      //Buffer pointing to ESPNOW data.
     uint8_t dest_mac[ESP_NOW_ETH_ALEN];   //MAC address of destination device.
 } espnow_send_param_t;
+
+static uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
 
 void espnow_deinit(espnow_send_param_t *send_param);
 esp_err_t espnow_init(void);

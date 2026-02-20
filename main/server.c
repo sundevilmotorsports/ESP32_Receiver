@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include "hash.h"
+#include "ESP32_Receiver.h"
+#include "esp_crc.h"
+#include "rom/ets_sys.h"
 
 extern const uint8_t index_html_start[] asm("_binary_index_html_start");
 extern const uint8_t index_html_end[] asm("_binary_index_html_end");
@@ -232,6 +235,63 @@ static esp_err_t telemetry_all_get_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// Takes a mac address string such as FF:FF:FF:FF:FF:FF and returns an uint8_t*
+uint8_t* string_to_mac(const char* str) {
+    if (!str) return NULL;
+
+    uint8_t *mac = malloc(6 * sizeof(uint8_t));
+    if (!mac) return NULL;
+
+    unsigned int bytes[6];
+
+    if (sscanf(str, "%02X:%02X:%02X:%02X:%02X:%02X",
+        &bytes[0], &bytes[1], &bytes[2],
+        &bytes[3], &bytes[4], &bytes[5]) != 6) {
+            free(mac);
+            return NULL;
+        }
+
+    for (int i = 0; i < 6; i++)
+        mac[i] = (uint8_t)bytes[i];
+
+    return mac;
+}
+
+esp_err_t send_ident_command(const uint8_t* dest_mac) {
+    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
+    if (buf == NULL) {
+        ESP_LOGE(TAG, "Malloc send buffer fail");
+        return ESP_ERR_NO_MEM;
+    }
+
+    buf->type = ESPNOW_GATE_IDENT;
+    buf->seq_num = s_espnow_seq[ESPNOW_DATA_UNICAST]++;
+    buf->crc = 0;
+    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, sizeof(espnow_data_t));
+
+    const esp_err_t ret = esp_now_send(dest_mac, (uint8_t *)buf, sizeof(espnow_data_t));
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Send ident error: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "Sent ident to " MACSTR, MAC2STR(dest_mac));
+    return ESP_OK;
+}
+
+static esp_err_t identify_gate_handler(httpd_req_t *req) {
+    set_cors(req);
+
+    const char* uri = req->uri;
+
+    const char* dest_mac_str = uri + strlen("/ident/");
+
+    ESP_LOGI(TAG, "Requested to identify timing gate: %s", dest_mac_str);
+
+    uint8_t* dest_mac = string_to_mac(dest_mac_str);
+    return send_ident_command(dest_mac);
+}
+
 static const httpd_uri_t telemetry = {
     .uri       = "/telemetry/*",
     .method    = HTTP_GET,
@@ -243,6 +303,13 @@ static const httpd_uri_t telemetry_all = {
     .uri       = "/telemetry",
     .method    = HTTP_GET,
     .handler   = telemetry_all_get_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t identify_gate = {
+    .uri       = "/ident/*",
+    .method    = HTTP_POST,
+    .handler   = identify_gate_handler,
     .user_ctx  = NULL
 };
 
@@ -275,6 +342,8 @@ httpd_handle_t start(void) {
         httpd_register_uri_handler(server, &root);
         httpd_register_uri_handler(server, &index_css);
         httpd_register_uri_handler(server, &index_js);
+
+        httpd_register_uri_handler(server, &identify_gate);
 
         return server;
     }
