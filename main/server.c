@@ -25,8 +25,6 @@ static const char *TAG = "server";
 static struct HashTable table;
 static struct HashTable gates;
 
-char* timing_gates;
-
 typedef enum {
     GATE_MODE_DELTA,   // standalone delta timer
     GATE_MODE_SERIES,  // part of a sequential track/series
@@ -62,10 +60,6 @@ static gate_config_t* get_or_create_gate_config(const char* mac) {
     cfg->group[0] = '\0';
     cfg->order = gate_config_count - 1;
     return cfg;
-}
-
-void setGates(char* gates) {
-    timing_gates = gates;
 }
 
 void addGateTime(const char* mac_addr, const char* data) {
@@ -234,52 +228,25 @@ static esp_err_t telemetry_get_handler(httpd_req_t *req) {
 
 static esp_err_t telemetry_all_get_handler(httpd_req_t *req) {
     set_cors(req);
+    httpd_resp_set_type(req, "application/json");
 
     char** keys = hashtable_list_keys(&table);
-
-    if (!keys) {
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, "[]", HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
-
-    char* buffer = malloc(8192);
-    if (!buffer) {
-        httpd_resp_set_type(req, "text/plain");
-        httpd_resp_send(req, "Failed to allocate memory", HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
-
-    int pos = 0;
-    pos += snprintf(buffer + pos, 8192 - pos, "[");
+    httpd_resp_sendstr_chunk(req, "[");
 
     bool first = true;
-    for (int i = 0; i < table.size; i++) {
-        if (keys[i] != NULL) {
-            const char* value = hashtable_get(&table, keys[i]);
-            if (value != NULL) {
-                if (!first) {
-                    pos += snprintf(buffer + pos, 8192 - pos, ",");
-                }
-                pos += snprintf(buffer + pos, 8192 - pos,
-                    "{\"key\":\"%s\",\"value\":\"%s\"}",
-                    keys[i], value);
-                first = false;
-
-                if (pos >= 7500) {
-                    break;
-                }
-            }
-        }
+    char chunk[128];
+    for (int i = 0; keys && i < table.size; i++) {
+        if (keys[i] == NULL) continue;
+        const char* value = hashtable_get(&table, keys[i]);
+        if (value == NULL) continue;
+        if (!first) httpd_resp_sendstr_chunk(req, ",");
+        snprintf(chunk, sizeof(chunk), "{\"key\":\"%s\",\"value\":\"%s\"}", keys[i], value);
+        httpd_resp_sendstr_chunk(req, chunk);
+        first = false;
     }
 
-    pos += snprintf(buffer + pos, 8192 - pos, "]");
-
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, buffer, pos);
-
-    free(buffer);
-
+    httpd_resp_sendstr_chunk(req, "]");
+    httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
 }
 
@@ -369,63 +336,46 @@ static esp_err_t identify_gate_handler(httpd_req_t *req) {
 
 static esp_err_t get_gates_handler(httpd_req_t *req) {
     set_cors(req);
-
-    const char* response = timing_gates;
-
-    if (response == NULL) {
-        httpd_resp_set_type(req, "text/plain");
-        httpd_resp_send(req, "NULL", HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
-
     httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, response, HTTPD_RESP_USE_STRLEN);
 
+    mac_address_list_t *mac_list = get_mac_list();
+    char chunk[32];
+    httpd_resp_sendstr_chunk(req, "[");
+    for (int i = 0; i < mac_list->count; i++) {
+        if (i > 0) httpd_resp_sendstr_chunk(req, ",");
+        snprintf(chunk, sizeof(chunk), "\""MACSTR"\"", MAC2STR(mac_list->mac_list[i]));
+        httpd_resp_sendstr_chunk(req, chunk);
+    }
+    httpd_resp_sendstr_chunk(req, "]");
+    httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
 }
 
 static esp_err_t get_gate_data_handler(httpd_req_t *req) {
     set_cors(req);
+    httpd_resp_set_type(req, "application/json");
 
     char** keys = hashtable_list_keys(&gates);
-    if (!keys) {
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_send(req, "[]", HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
-
-    char* buffer = malloc(8192);
-    if (!buffer) {
-        httpd_resp_set_type(req, "text/plain");
-        httpd_resp_send(req, "Failed to allocate memory", HTTPD_RESP_USE_STRLEN);
-        return ESP_OK;
-    }
-
-    int pos = 0;
-    pos += snprintf(buffer + pos, 8192 - pos, "[");
+    httpd_resp_sendstr_chunk(req, "[");
 
     bool first = true;
-    for (int i = 0; i < gates.size; i++) {
-        if (keys[i] != NULL) {
-            const char* value = hashtable_get(&gates, keys[i]);
-            if (value != NULL) {
-                if (!first) pos += snprintf(buffer + pos, 8192 - pos, ",");
-                // value is "timestamp_us,diff_us"
-                int64_t timestamp_us, diff_us;
-                sscanf(value, "%lld,%lld", &timestamp_us, &diff_us);
-                pos += snprintf(buffer + pos, 8192 - pos,
-                    "{\"mac\":\"%s\",\"timestamp_us\":%lld,\"diff_us\":%lld}",
-                    keys[i], timestamp_us, diff_us);
-                first = false;
-                if (pos >= 7500) break;
-            }
-        }
+    char chunk[96];
+    for (int i = 0; keys && i < gates.size; i++) {
+        if (keys[i] == NULL) continue;
+        const char* value = hashtable_get(&gates, keys[i]);
+        if (value == NULL) continue;
+        int64_t timestamp_us, diff_us;
+        sscanf(value, "%lld,%lld", &timestamp_us, &diff_us);
+        if (!first) httpd_resp_sendstr_chunk(req, ",");
+        snprintf(chunk, sizeof(chunk),
+            "{\"mac\":\"%s\",\"timestamp_us\":%lld,\"diff_us\":%lld}",
+            keys[i], timestamp_us, diff_us);
+        httpd_resp_sendstr_chunk(req, chunk);
+        first = false;
     }
 
-    pos += snprintf(buffer + pos, 8192 - pos, "]");
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, buffer, pos);
-    free(buffer);
+    httpd_resp_sendstr_chunk(req, "]");
+    httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
 }
 
@@ -467,26 +417,22 @@ static const httpd_uri_t get_gates_data = {
 // GET /gate-config  -> returns all gate configs as JSON array
 static esp_err_t gate_config_get_handler(httpd_req_t *req) {
     set_cors(req);
+    httpd_resp_set_type(req, "application/json");
 
-    char* buf = malloc(4096);
-    if (!buf) { httpd_resp_send_500(req); return ESP_FAIL; }
-
-    int pos = 0;
-    pos += snprintf(buf + pos, 4096 - pos, "[");
+    httpd_resp_sendstr_chunk(req, "[");
+    char chunk[96];
     for (int i = 0; i < gate_config_count; i++) {
-        if (i > 0) pos += snprintf(buf + pos, 4096 - pos, ",");
-        pos += snprintf(buf + pos, 4096 - pos,
+        if (i > 0) httpd_resp_sendstr_chunk(req, ",");
+        snprintf(chunk, sizeof(chunk),
             "{\"mac\":\"%s\",\"mode\":\"%s\",\"group\":\"%s\",\"order\":%d}",
             gate_configs[i].mac,
             gate_configs[i].mode == GATE_MODE_SERIES ? "series" : "delta",
             gate_configs[i].group,
             gate_configs[i].order);
+        httpd_resp_sendstr_chunk(req, chunk);
     }
-    pos += snprintf(buf + pos, 4096 - pos, "]");
-
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_send(req, buf, pos);
-    free(buf);
+    httpd_resp_sendstr_chunk(req, "]");
+    httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
 }
 
@@ -570,6 +516,9 @@ httpd_handle_t start(void) {
     config.server_port = 3000;
     config.max_uri_handlers = 12;
     config.lru_purge_enable = true;
+    config.stack_size = 8192;
+    config.recv_wait_timeout = 3;
+    config.send_wait_timeout = 3;
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {

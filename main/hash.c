@@ -30,6 +30,10 @@ void hashtable_insert(struct HashTable *table, const char *key, const char *valu
     }
 
     int index = key_hash(key);
+
+    if (table->bucket[index] != NULL) free(table->bucket[index]);
+    if (table->values[index] != NULL) free(table->values[index]);
+
     table->bucket[index] = strdup(key);
     table->values[index] = strdup(value);
 }

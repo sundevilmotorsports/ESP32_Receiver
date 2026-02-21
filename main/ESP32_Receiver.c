@@ -16,18 +16,23 @@
 #include "esp_mac.h"
 #include "esp_now.h"
 #include "esp_crc.h"
-#include "ESP32_Receiver.h"
-
 #include "esp_timer.h"
+#include "ESP32_Receiver.h"
+#include "esp_heap_caps.h"
 #include "server.h"
 
-#define ESPNOW_QUEUE_SIZE 6
+#define ESPNOW_QUEUE_SIZE 16
 #define ACK_TIMER_INTERVAL_MS (15 * 1000)
 #define PING_TIMER_INTERVAL_MS (10 * 1000)
 #define MAX_PING_MS (11 * 1000);
 
 static QueueHandle_t s_espnow_queue;
 static mac_address_list_t mac_list = {0};
+
+mac_address_list_t* get_mac_list(void) {
+    return &mac_list;
+}
+
 static uint8_t s_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static TimerHandle_t ack_timer;
 static TimerHandle_t ping_timer;
@@ -40,25 +45,6 @@ void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
              mac_addr[3], mac_addr[4], mac_addr[5]);
 }
 
-const char *create_mac_json_list() {
-    const size_t len = mac_list.count + 4 + sizeof(uint8_t) * 6 * mac_list.count;
-    char* buf = malloc(len);
-    if (!buf) {
-        ESP_LOGW(TAG, "Failed to allocate memory!");
-        return NULL;
-    }
-
-    int pos = 0;
-    pos += snprintf(buf + pos, len - pos, "[");
-
-    for (size_t i = 0; i < mac_list.count; i++) {
-        pos += snprintf(buf + pos, len - pos, ""MACSTR"", MAC2STR(mac_list.mac_list[i]));
-    }
-
-    pos += snprintf(buf + pos, len - pos, "]");
-
-    return buf;
-}
 
 static TaskHandle_t ack_task_handle = NULL;
 static TaskHandle_t ping_task_handle = NULL;
@@ -126,17 +112,16 @@ void send_pings() {
             ESP_LOGI(TAG, "Sent ping to " MACSTR, MAC2STR(dest_mac));
         }
 
-        // TODO: Use task notification for ping responses
         vTaskDelay(pdMS_TO_TICKS(50));
-
-        ESP_LOGI(TAG, "Macs:");
-        for (size_t i = 0; i < mac_list.count; i++) {
-            ESP_LOGI(TAG, MACSTR, MAC2STR(mac_list.mac_list[i]));
-        }
 
         if ((esp_timer_get_time() - mac_list.lastPings[i]) > 11 * 1000 * 1000ULL) {
             ESP_LOGW(TAG, "No ping response from: "MACSTR"", MAC2STR(mac_list.mac_list[i]));
         }
+    }
+
+    ESP_LOGI(TAG, "Macs:");
+    for (size_t j = 0; j < mac_list.count; j++) {
+        ESP_LOGI(TAG, MACSTR, MAC2STR(mac_list.mac_list[j]));
     }
 
     free(buf);
@@ -200,6 +185,11 @@ void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, i
 
     if (mac_addr == NULL || data == NULL || len <= 0) {
         ESP_LOGE(TAG, "Receive cb arg error");
+        return;
+    }
+
+    if (esp_get_free_heap_size() < 10000) {
+        ESP_LOGW(TAG, "Heap low (%lu bytes), dropping packet", esp_get_free_heap_size());
         return;
     }
 
@@ -313,8 +303,12 @@ void espnow_task(void *pvParameter) {
     uint16_t recv_seq = 0;
     int recv_magic = 0;
     int ret;
+    uint32_t pkt_count = 0;
 
     while (xQueueReceive(s_espnow_queue, &evt, portMAX_DELAY) == pdTRUE) {
+        if (++pkt_count % 100 == 0) {
+            ESP_LOGI(TAG, "Heap free: %lu bytes", esp_get_free_heap_size());
+        }
         switch (evt.id) {
             case ESPNOW_SEND_CB:
             {
@@ -335,14 +329,7 @@ void espnow_task(void *pvParameter) {
 
                 if (ret == ESPNOW_DATA_ACK) {
                     ESP_LOGI(TAG, "Received ACK from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
-
                     add_mac_to_list(recv_cb->mac_addr);
-                    char mac_string[18];
-                    mac_to_string(recv_cb->mac_addr, mac_string);
-
-                    const char* macs = create_mac_json_list();
-
-                    setGates(macs);
                 } else if (ret == ESPNOW_DATA_REQUEST) {
                     ESP_LOGI(TAG, "Received request from "MACSTR", seq: %d", MAC2STR(recv_cb->mac_addr), recv_seq);
 
@@ -377,6 +364,37 @@ void espnow_task(void *pvParameter) {
                     }
 
                     mac_list.lastPings[index] = esp_timer_get_time();
+                } else if (ret == ESPNOW_TELEMETRY) {
+                    // ESP_LOGI(TAG, "Received telemetry from "MACSTR"", MAC2STR(recv_cb->mac_addr));
+
+                    const uint8_t *payload = packet->data;
+                    size_t payload_len = packet->len;
+                    size_t pos = 0;
+
+                    while (pos < payload_len) {
+                        uint8_t id = payload[pos++];
+
+                        int seg = -1;
+                        for (int s = 0; s < NUM_SEGMENTS; s++) {
+                            if (segments[s].id == id) { seg = s; break; }
+                        }
+                        if (seg < 0 || pos + segments[seg].len > payload_len) {
+                            ESP_LOGW(TAG, "Unknown or truncated telemetry id: 0x%02X at pos %zu", id, pos - 1);
+                            break;
+                        }
+
+                        char hex[64] = {0};
+                        int hpos = 0;
+                        for (int b = 0; b < segments[seg].len; b++) {
+                            hpos += snprintf(hex + hpos, sizeof(hex) - hpos,
+                                             b ? " %02X" : "%02X", payload[pos + b]);
+                        }
+
+                        addString(segments[seg].name, hex);
+                        // ESP_LOGI(TAG, "Telemetry %s = %s", segments[seg].name, hex);
+
+                        pos += segments[seg].len;
+                    }
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
                 }
@@ -497,7 +515,7 @@ esp_err_t espnow_init(void) {
         return ESP_FAIL;
     }
 
-    xTaskCreate(espnow_task, "espnow_task", 4096, NULL, 4, NULL);
+    xTaskCreate(espnow_task, "espnow_task", 8192, NULL, 4, NULL);
 
     return ESP_OK;
 }
@@ -527,6 +545,6 @@ void app_main(void) {
     xTaskCreate(ack_task, "ack_task", 3072, NULL, 3, &ack_task_handle);
     softap_init();
     espnow_init();
-    xTaskCreatePinnedToCore(server_start, "server", 4098, NULL, 4, NULL, 1);
+    xTaskCreatePinnedToCore(server_start, "server", 6144, NULL, 4, NULL, 1);
     xTaskCreate(ping_task, "ping", 4096, NULL, 5, &ping_task_handle);
 }
