@@ -27,6 +27,43 @@ static struct HashTable gates;
 
 char* timing_gates;
 
+typedef enum {
+    GATE_MODE_DELTA,   // standalone delta timer
+    GATE_MODE_SERIES,  // part of a sequential track/series
+} gate_mode_t;
+
+typedef struct {
+    char mac[18];
+    gate_mode_t mode;
+    char group[32];      // group/series name (empty = ungrouped)
+    int order;           // sort order within group
+} gate_config_t;
+
+#define MAX_GATE_CONFIGS 50
+static gate_config_t gate_configs[MAX_GATE_CONFIGS];
+static int gate_config_count = 0;
+
+static gate_config_t* find_gate_config(const char* mac) {
+    for (int i = 0; i < gate_config_count; i++) {
+        if (strcmp(gate_configs[i].mac, mac) == 0)
+            return &gate_configs[i];
+    }
+    return NULL;
+}
+
+static gate_config_t* get_or_create_gate_config(const char* mac) {
+    gate_config_t* cfg = find_gate_config(mac);
+    if (cfg) return cfg;
+    if (gate_config_count >= MAX_GATE_CONFIGS) return NULL;
+    cfg = &gate_configs[gate_config_count++];
+    strncpy(cfg->mac, mac, sizeof(cfg->mac) - 1);
+    cfg->mac[sizeof(cfg->mac) - 1] = '\0';
+    cfg->mode = GATE_MODE_DELTA;
+    cfg->group[0] = '\0';
+    cfg->order = gate_config_count - 1;
+    return cfg;
+}
+
 void setGates(char* gates) {
     timing_gates = gates;
 }
@@ -427,6 +464,93 @@ static const httpd_uri_t get_gates_data = {
     .user_ctx  = NULL
 };
 
+// GET /gate-config  -> returns all gate configs as JSON array
+static esp_err_t gate_config_get_handler(httpd_req_t *req) {
+    set_cors(req);
+
+    char* buf = malloc(4096);
+    if (!buf) { httpd_resp_send_500(req); return ESP_FAIL; }
+
+    int pos = 0;
+    pos += snprintf(buf + pos, 4096 - pos, "[");
+    for (int i = 0; i < gate_config_count; i++) {
+        if (i > 0) pos += snprintf(buf + pos, 4096 - pos, ",");
+        pos += snprintf(buf + pos, 4096 - pos,
+            "{\"mac\":\"%s\",\"mode\":\"%s\",\"group\":\"%s\",\"order\":%d}",
+            gate_configs[i].mac,
+            gate_configs[i].mode == GATE_MODE_SERIES ? "series" : "delta",
+            gate_configs[i].group,
+            gate_configs[i].order);
+    }
+    pos += snprintf(buf + pos, 4096 - pos, "]");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, buf, pos);
+    free(buf);
+    return ESP_OK;
+}
+
+// POST /gate-config  body: {"mac":"AA:BB:CC:DD:EE:FF","mode":"delta|series","group":"name"}
+static esp_err_t gate_config_post_handler(httpd_req_t *req) {
+    set_cors(req);
+
+    char body[128];
+    int recv_size = (req->content_len < sizeof(body) - 1) ? req->content_len : sizeof(body) - 1;
+    int ret = httpd_req_recv(req, body, recv_size);
+    if (ret <= 0) { httpd_resp_send_408(req); return ESP_FAIL; }
+    body[ret] = '\0';
+
+    // Minimal JSON parse: pull out mac, mode, group, order
+    char mac[18] = {0}, mode[16] = {0}, group[32] = {0};
+    int order = -1;
+
+    char* p;
+    if ((p = strstr(body, "\"mac\"")))   sscanf(p, "\"mac\":\"%17[^\"]\"", mac);
+    if ((p = strstr(body, "\"mode\"")))  sscanf(p, "\"mode\":\"%15[^\"]\"", mode);
+    if ((p = strstr(body, "\"group\":"))) sscanf(p, "\"group\":\"%31[^\"]\"", group);
+    if ((p = strstr(body, "\"order\":"))) sscanf(p, "\"order\":%d", &order);
+
+    if (mac[0] == '\0') {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "Missing mac", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    gate_config_t* cfg = get_or_create_gate_config(mac);
+    if (!cfg) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "Too many gates", HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+
+    if (strcmp(mode, "series") == 0) cfg->mode = GATE_MODE_SERIES;
+    else cfg->mode = GATE_MODE_DELTA;
+
+    strncpy(cfg->group, group, sizeof(cfg->group) - 1);
+    cfg->group[sizeof(cfg->group) - 1] = '\0';
+    if (order >= 0) cfg->order = order;
+
+    ESP_LOGI(TAG, "Gate config: mac=%s mode=%s group=%s order=%d", cfg->mac, mode, cfg->group, cfg->order);
+
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+static const httpd_uri_t gate_config_get = {
+    .uri     = "/gate-config",
+    .method  = HTTP_GET,
+    .handler = gate_config_get_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t gate_config_post = {
+    .uri     = "/gate-config",
+    .method  = HTTP_POST,
+    .handler = gate_config_post_handler,
+    .user_ctx = NULL
+};
+
 httpd_handle_t start(void) {
     table = hashtable_create();
     gates = hashtable_create();
@@ -444,7 +568,7 @@ httpd_handle_t start(void) {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 3000;
-    config.max_uri_handlers = 10;
+    config.max_uri_handlers = 12;
     config.lru_purge_enable = true;
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
@@ -461,6 +585,8 @@ httpd_handle_t start(void) {
         httpd_register_uri_handler(server, &identify_gate);
         httpd_register_uri_handler(server, &get_gates);
         httpd_register_uri_handler(server, &get_gates_data);
+        httpd_register_uri_handler(server, &gate_config_get);
+        httpd_register_uri_handler(server, &gate_config_post);
 
         return server;
     }
