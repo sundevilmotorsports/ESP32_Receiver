@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 
-int key_hash(char *key);
+static int key_hash(const char *key);
 bool key_equals(char *key, char *other);
 
 struct HashTable {

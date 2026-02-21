@@ -4,16 +4,10 @@
 
 #define TABLE_SIZE 100
 
-int key_hash(char *key) {
+static int key_hash(const char *key) {
     unsigned int hash = 0;
-    while (*key) {
-        hash = (hash * 31) + (*key++);
-    }
-    return hash % TABLE_SIZE;
-}
-
-bool key_equals(char *key, char *other) {
-    return strcmp(key, other) == 0;
+    while (*key) hash = (hash * 31) + (*key++);
+    return (int)(hash % TABLE_SIZE);
 }
 
 struct HashTable hashtable_create() {
@@ -25,27 +19,39 @@ struct HashTable hashtable_create() {
 }
 
 void hashtable_insert(struct HashTable *table, const char *key, const char *value) {
-    if (table == NULL || key == NULL) {
-        return;
-    }
+    if (!table || !key) return;
 
     int index = key_hash(key);
 
-    if (table->bucket[index] != NULL) free(table->bucket[index]);
-    if (table->values[index] != NULL) free(table->values[index]);
+    // Linear probe: find existing slot for this key, or first empty slot
+    for (int i = 0; i < TABLE_SIZE; i++) {
+        int slot = (index + i) % TABLE_SIZE;
 
-    table->bucket[index] = strdup(key);
-    table->values[index] = strdup(value);
+        if (table->bucket[slot] == NULL) {
+            // Empty slot
+            table->bucket[slot] = strdup(key);
+            table->values[slot] = strdup(value);
+            return;
+        }
+
+        if (strcmp(table->bucket[slot], key) == 0) {
+            // Key already exists
+            free(table->values[slot]);
+            table->values[slot] = strdup(value);
+            return;
+        }
+    }
 }
 
 const char *hashtable_get(struct HashTable *table, char *key) {
-    if (table == NULL || key == NULL) {
-        return NULL;
-    }
+    if (!table || !key) return NULL;
 
     int index = key_hash(key);
-    if (table->bucket[index] != NULL && key_equals(table->bucket[index], key)) {
-        return table->values[index];
+
+    for (int i = 0; i < TABLE_SIZE; i++) {
+        int slot = (index + i) % TABLE_SIZE;
+        if (table->bucket[slot] == NULL) return NULL;
+        if (strcmp(table->bucket[slot], key) == 0) return table->values[slot];
     }
 
     return NULL;
