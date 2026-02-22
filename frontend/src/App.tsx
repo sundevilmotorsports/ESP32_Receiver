@@ -32,18 +32,36 @@ interface Telemetry {
 
 const fmt = (us: number) => us === 0 ? "—" : (us / 1e6).toFixed(3) + "s";
 const diff = (a: number, b: number) => (a === 0 || b === 0) ? "—" : ((b - a) / 1e6).toFixed(3) + "s";
+const rnd = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+const hex = (n: number) => n.toString(16).toUpperCase().padStart(2, "0");
+const fakeHex = (bytes: number) => Array.from({length: bytes}, () => hex(rnd(0, 255))).join(" ");
+
+const FAKE_CONFIGS: GateConfig[] = [
+  {mac: "AA:BB:CC:DD:EE:01", mode: "series", group: "track1", order: 0},
+  {mac: "AA:BB:CC:DD:EE:02", mode: "series", group: "track1", order: 1},
+];
+const TELEM_KEYS = [
+  {k: "drs", b: 1}, {k: "imu_gyro", b: 6}, {k: "imu_accel", b: 6},
+  {k: "wheel_fl", b: 6}, {k: "wheel_fr", b: 6}, {k: "wheel_rr", b: 6}, {k: "wheel_rl", b: 6},
+  {k: "sg_fl", b: 2}, {k: "sg_fr", b: 2}, {k: "sg_rr", b: 2}, {k: "sg_rl", b: 2},
+  {k: "eng_f0", b: 3}, {k: "eng_f1", b: 3}, {k: "eng_f2", b: 1}, {k: "shifter", b: 3},
+];
 
 function App() {
   const [gates, setGates] = useState<TimingGate[]>([]);
   const [configs, setConfigs] = useState<GateConfig[]>([]);
   const [telemetry, setTelemetry] = useState<Telemetry[]>([]);
+  const fake = true;
 
-  const fetchConfigs = () => fetch("/gate-config").then(r => r.json()).then(setConfigs).catch(() => {
-  });
+  const fetchConfigs = () => fetch("/gate-config").then(r => r.json()).then(setConfigs).catch(() => {});
 
-  const save = (cfg: GateConfig) =>
-    fetch("/gate-config", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(cfg)})
-      .then(fetchConfigs);
+  const save = (cfg: GateConfig): Promise<void> => {
+    if (fake) {
+      setConfigs(prev => prev.some(c => c.mac === cfg.mac) ? prev.map(c => c.mac === cfg.mac ? cfg : c) : [...prev, cfg]);
+      return Promise.resolve();
+    }
+    return fetch("/gate-config", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(cfg)}).then(fetchConfigs);
+  };
 
   const move = (cfg: GateConfig, groupRows: GateRow[], dir: -1 | 1) => {
     const idx = groupRows.findIndex(r => r.config.mac === cfg.mac);
@@ -54,16 +72,26 @@ function App() {
   };
 
   useEffect(() => {
-    fetchConfigs();
-    const id = setInterval(() => {
-      fetch("/timing").then(r => r.json()).then(setGates).catch(() => {
-      });
-
-      fetch("/telemetry").then(r => r.json()).then(setTelemetry).catch(() => {
-      });
-    }, 500);
-    return () => clearInterval(id);
-  }, []);
+    if (fake) {
+      setConfigs(FAKE_CONFIGS);
+      const base = Date.now() * 1000;
+      const id = setInterval(() => {
+        setGates([
+          {mac: "AA:BB:CC:DD:EE:01", timestamp_us: base, diff_us: rnd(900000, 1100000)},
+          {mac: "AA:BB:CC:DD:EE:02", timestamp_us: base + rnd(10e6, 30e6), diff_us: rnd(900000, 1100000)},
+        ]);
+        setTelemetry(TELEM_KEYS.map(({k, b}) => ({key: k, value: fakeHex(b)})));
+      }, 500);
+      return () => clearInterval(id);
+    } else {
+      fetchConfigs();
+      const id = setInterval(() => {
+        fetch("/timing").then(r => r.json()).then(setGates).catch(() => {});
+        fetch("/telemetry").then(r => r.json()).then(setTelemetry).catch(() => {});
+      }, 500);
+      return () => clearInterval(id);
+    }
+  }, [fake]);
 
   // Sort configs by order, group them
   const sorted = [...configs].sort((a, b) => a.order - b.order);
