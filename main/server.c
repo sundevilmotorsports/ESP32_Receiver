@@ -343,7 +343,7 @@ static esp_err_t get_gates_handler(httpd_req_t *req) {
     httpd_resp_sendstr_chunk(req, "[");
     for (int i = 0; i < mac_list->count; i++) {
         if (i > 0) httpd_resp_sendstr_chunk(req, ",");
-        snprintf(chunk, sizeof(chunk), "\""MACSTR"\"", MAC2STR(mac_list->mac_list[i]));
+        snprintf(chunk, sizeof(chunk), "\""MACSTR"\"", MAC2STR(mac_list->mac_list[i].addr));
         httpd_resp_sendstr_chunk(req, chunk);
     }
     httpd_resp_sendstr_chunk(req, "]");

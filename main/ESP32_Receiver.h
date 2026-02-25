@@ -20,6 +20,7 @@ typedef enum {
     ESPNOW_DATA_REQUEST,
     ESPNOW_DATA_PING,
     ESPNOW_GATE_IDENT,
+    ESPNOW_DATA_OK,
     ESPNOW_TELEMETRY,
 } espnow_msg_type_t;
 
@@ -58,10 +59,14 @@ typedef struct __attribute__((packed)) {
     uint8_t  data[200];
 } espnow_data_t;
 
-/* MAC address list structure */
 typedef struct {
-    uint8_t mac_list[MAX_MAC_ADDRESSES][ESP_NOW_ETH_ALEN];
-    int64_t lastPings[MAX_MAC_ADDRESSES];
+    uint8_t addr[ESP_NOW_ETH_ALEN];
+    uint16_t last_data_seq;
+    int64_t lastPing;
+} mac_address_t;
+
+typedef struct {
+    mac_address_t mac_list[MAX_MAC_ADDRESSES];
     int count;
 } mac_address_list_t;
 
@@ -74,7 +79,8 @@ typedef struct {
     uint8_t dest_mac[ESP_NOW_ETH_ALEN];   //MAC address of destination device.
 } espnow_send_param_t;
 
-static uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
+/* Sequence counters — defined in ESP32_Receiver.c, declared here for server.c */
+extern uint16_t s_espnow_seq[ESPNOW_DATA_MAX];
 
 static const struct { uint8_t id; uint8_t len; const char* name; } segments[] = {
     { 0x01, 1, "drs"       },

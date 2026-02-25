@@ -27,7 +27,7 @@
 #define MAX_PING_MS (11 * 1000);
 
 static QueueHandle_t s_espnow_queue;
-static mac_address_list_t mac_list = {0};
+static mac_address_list_t mac_list;
 
 mac_address_list_t* get_mac_list(void) {
     return &mac_list;
@@ -38,6 +38,8 @@ static TimerHandle_t ack_timer;
 static TimerHandle_t ping_timer;
 
 static const char *TAG = "receiver";
+
+uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
 
 void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
     snprintf(mac_string, 18, "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -93,7 +95,7 @@ void send_pings() {
     buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, sizeof(espnow_data_t));
 
     for (size_t i = 0; i < mac_list.count; i++) {
-        const uint8_t *dest_mac = mac_list.mac_list[i];
+        const uint8_t *dest_mac = mac_list.mac_list[i].addr;
 
         if (!esp_now_is_peer_exist(dest_mac)) {
             esp_now_peer_info_t peer;
@@ -114,14 +116,14 @@ void send_pings() {
 
         vTaskDelay(pdMS_TO_TICKS(50));
 
-        if ((esp_timer_get_time() - mac_list.lastPings[i]) > 11 * 1000 * 1000ULL) {
-            ESP_LOGW(TAG, "No ping response from: "MACSTR"", MAC2STR(mac_list.mac_list[i]));
+        if ((esp_timer_get_time() - mac_list.mac_list[i].lastPing) > 11 * 1000 * 1000ULL) {
+            ESP_LOGW(TAG, "No ping response from: "MACSTR"", MAC2STR(mac_list.mac_list[i].addr));
         }
     }
 
     ESP_LOGI(TAG, "Macs:");
     for (size_t j = 0; j < mac_list.count; j++) {
-        ESP_LOGI(TAG, MACSTR, MAC2STR(mac_list.mac_list[j]));
+        ESP_LOGI(TAG, MACSTR, MAC2STR(mac_list.mac_list[j].addr));
     }
 
     free(buf);
@@ -239,7 +241,7 @@ void add_mac_to_list(const uint8_t *mac_addr) {
         return;
     }
 
-    memcpy(mac_list.mac_list[mac_list.count], mac_addr, ESP_NOW_ETH_ALEN);
+    memcpy(mac_list.mac_list[mac_list.count].addr, mac_addr, ESP_NOW_ETH_ALEN);
     mac_list.count++;
 
     ESP_LOGI(TAG, "Added MAC to list: " MACSTR " (Total: %d)", MAC2STR(mac_addr), mac_list.count);
@@ -247,7 +249,7 @@ void add_mac_to_list(const uint8_t *mac_addr) {
 
 bool is_mac_in_list(const uint8_t *mac_addr) {
     for (int i = 0; i < mac_list.count; i++) {
-        if (memcmp(mac_list.mac_list[i], mac_addr, ESP_NOW_ETH_ALEN) == 0) {
+        if (memcmp(mac_list.mac_list[i].addr, mac_addr, ESP_NOW_ETH_ALEN) == 0) {
             return true;
         }
     }
@@ -337,6 +339,9 @@ void espnow_task(void *pvParameter) {
                     if (payload_len > 0 && payload_len <= sizeof(packet->data)) {
                         char* buffer = malloc(payload_len + 1);
                         if (buffer != NULL) {
+                            int index = mac_index(recv_cb->mac_addr);
+                            mac_list.mac_list[index].last_data_seq = recv_seq;
+
                             memcpy(buffer, packet->data, payload_len);
                             buffer[payload_len] = '\0';
 
@@ -346,8 +351,37 @@ void espnow_task(void *pvParameter) {
                             mac_to_string(recv_cb->mac_addr, mac_addr_string);
 
                             addGateTime(mac_addr_string, buffer);
-
                             free(buffer);
+
+                            espnow_data_t *ok_pkt = malloc(sizeof(espnow_data_t));
+                            if (ok_pkt != NULL) {
+                                memset(ok_pkt, 0, sizeof(espnow_data_t));
+                                ok_pkt->type    = ESPNOW_DATA_OK;
+                                ok_pkt->seq_num = recv_seq;
+                                ok_pkt->len     = 0;
+                                ok_pkt->crc     = 0;
+                                ok_pkt->crc     = esp_crc16_le(UINT16_MAX, (uint8_t const *)ok_pkt, sizeof(espnow_data_t));
+
+                                if (!esp_now_is_peer_exist(recv_cb->mac_addr)) {
+                                    esp_now_peer_info_t peer;
+                                    memset(&peer, 0, sizeof(esp_now_peer_info_t));
+                                    peer.channel = 1;
+                                    peer.ifidx   = ESP_IF_WIFI_STA;
+                                    peer.encrypt = false;
+                                    memcpy(peer.peer_addr, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                                    ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+                                }
+
+                                esp_err_t ok_ret = esp_now_send(recv_cb->mac_addr, (uint8_t *)ok_pkt, sizeof(espnow_data_t));
+                                if (ok_ret != ESP_OK) {
+                                    ESP_LOGE(TAG, "Failed to send OK to "MACSTR": %s", MAC2STR(recv_cb->mac_addr), esp_err_to_name(ok_ret));
+                                } else {
+                                    ESP_LOGI(TAG, "Sent OK for seq %d to "MACSTR"", recv_seq, MAC2STR(recv_cb->mac_addr));
+                                }
+                                free(ok_pkt);
+                            } else {
+                                ESP_LOGE(TAG, "Failed to allocate OK packet");
+                            }
                         } else {
                             ESP_LOGE(TAG, "Failed to allocate buffer for received data");
                         }
@@ -362,8 +396,9 @@ void espnow_task(void *pvParameter) {
                         add_mac_to_list(recv_cb->mac_addr);
                         index = mac_index(recv_cb->mac_addr);
                     }
-
-                    mac_list.lastPings[index] = esp_timer_get_time();
+                    if (index != -1) {
+                        mac_list.mac_list[index].lastPing = esp_timer_get_time();
+                    }
                 } else if (ret == ESPNOW_TELEMETRY) {
                     // ESP_LOGI(TAG, "Received telemetry from "MACSTR"", MAC2STR(recv_cb->mac_addr));
 
@@ -412,7 +447,7 @@ void espnow_task(void *pvParameter) {
 int mac_index(const uint8_t *mac_addr) {
     uint8_t idx = 0;
     for (int i = 0; i < mac_list.count; i++) {
-        if (memcmp(mac_addr, mac_list.mac_list[i], ESP_NOW_ETH_ALEN) == 0) {
+        if (memcmp(mac_addr, mac_list.mac_list[i].addr, ESP_NOW_ETH_ALEN) == 0) {
             return idx;
         }
 
