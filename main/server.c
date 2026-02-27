@@ -25,6 +25,8 @@ static const char *TAG = "server";
 static struct HashTable table;
 static struct HashTable gates;
 
+#define MAX_GATE_CONFIGS 10
+
 typedef enum {
     GATE_MODE_DELTA,   // standalone delta timer
     GATE_MODE_SERIES,  // part of a sequential track/series
@@ -37,7 +39,18 @@ typedef struct {
     int order;           // sort order within group
 } gate_config_t;
 
-#define MAX_GATE_CONFIGS 50
+#define MAX_GATE_HISTORY 50
+
+typedef struct {
+    char mac_str[18];
+    int64_t timestamps_us[MAX_GATE_HISTORY]; // absolute µs (esp_timer_get_time)
+    int64_t diffs_us[MAX_GATE_HISTORY];      // delta from previous trigger for this gate
+    int count;
+} gate_history_t;
+
+static gate_history_t gate_history[MAX_GATE_CONFIGS];
+static int gate_history_count = 0;
+
 static gate_config_t gate_configs[MAX_GATE_CONFIGS];
 static int gate_config_count = 0;
 
@@ -64,6 +77,43 @@ static gate_config_t* get_or_create_gate_config(const char* mac) {
 
 void addGateTime(const char* mac_addr, const char* data) {
     hashtable_insert(&gates, mac_addr, data);
+
+    // Parse timestamp_us and diff_us from data string "timestamp_us,diff_us"
+    int64_t timestamp_us = 0, diff_us = 0;
+    sscanf(data, "%lld,%lld", &timestamp_us, &diff_us);
+
+    gate_history_t *hist = NULL;
+    for (int i = 0; i < gate_history_count; i++) {
+        if (strcmp(gate_history[i].mac_str, mac_addr) == 0) {
+            hist = &gate_history[i];
+            break;
+        }
+    }
+
+    if (hist == NULL) {
+        if (gate_history_count >= MAX_GATE_CONFIGS) {
+            ESP_LOGW(TAG, "Gate history table full, dropping entry for %s", mac_addr);
+            return;
+        }
+        hist = &gate_history[gate_history_count++];
+        strncpy(hist->mac_str, mac_addr, sizeof(hist->mac_str) - 1);
+        hist->mac_str[sizeof(hist->mac_str) - 1] = '\0';
+        hist->count = 0;
+    }
+
+    if (hist->count < MAX_GATE_HISTORY) {
+        hist->timestamps_us[hist->count] = timestamp_us;
+        hist->diffs_us[hist->count]      = diff_us;
+        hist->count++;
+    } else {
+        // Ring-buffer: shift entries left and append
+        memmove(&hist->timestamps_us[0], &hist->timestamps_us[1],
+                (MAX_GATE_HISTORY - 1) * sizeof(int64_t));
+        memmove(&hist->diffs_us[0], &hist->diffs_us[1],
+                (MAX_GATE_HISTORY - 1) * sizeof(int64_t));
+        hist->timestamps_us[MAX_GATE_HISTORY - 1] = timestamp_us;
+        hist->diffs_us[MAX_GATE_HISTORY - 1]      = diff_us;
+    }
 }
 
 void set_cors(httpd_req_t *req) {
@@ -497,6 +547,35 @@ static const httpd_uri_t gate_config_post = {
     .user_ctx = NULL
 };
 
+static esp_err_t gate_history_csv_handler(httpd_req_t *req) {
+    set_cors(req);
+    httpd_resp_set_type(req, "text/csv");
+    httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"timing.csv\"");
+
+    httpd_resp_sendstr_chunk(req, "mac,trigger_index,timestamp_us,diff_us\r\n");
+
+    char row[80];
+    for (int i = 0; i < gate_history_count; i++) {
+        for (int j = 0; j < gate_history[i].count; j++) {
+            snprintf(row, sizeof(row), "%s,%d,%lld,%lld\r\n",
+                     gate_history[i].mac_str, j,
+                     gate_history[i].timestamps_us[j],
+                     gate_history[i].diffs_us[j]);
+            httpd_resp_sendstr_chunk(req, row);
+        }
+    }
+
+    httpd_resp_sendstr_chunk(req, NULL);
+    return ESP_OK;
+}
+
+static const httpd_uri_t gate_history_csv = {
+    .uri     = "/timing/export.csv",
+    .method  = HTTP_GET,
+    .handler = gate_history_csv_handler,
+    .user_ctx = NULL
+};
+
 httpd_handle_t start(void) {
     table = hashtable_create();
     gates = hashtable_create();
@@ -514,7 +593,7 @@ httpd_handle_t start(void) {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 3000;
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 14;
     config.lru_purge_enable = true;
     config.stack_size = 8192;
     config.recv_wait_timeout = 3;
@@ -536,6 +615,7 @@ httpd_handle_t start(void) {
         httpd_register_uri_handler(server, &get_gates_data);
         httpd_register_uri_handler(server, &gate_config_get);
         httpd_register_uri_handler(server, &gate_config_post);
+        httpd_register_uri_handler(server, &gate_history_csv);
 
         return server;
     }

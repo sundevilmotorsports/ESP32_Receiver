@@ -6,6 +6,7 @@ import { TelemetryPanel } from "@/components/TelemetryPanel";
 import type { GateConfig, GateRow, TimingGate, Telemetry } from "@/lib/types";
 import { FAKE_CONFIGS, generateFakeGates, generateFakeTelemetry } from "@/lib/types";
 import { ThemeToggle } from "@/components/theme-toggle.tsx";
+import {Button} from "@/components/ui/button.tsx";
 
 function buildGroups(configs: GateConfig[], gates: TimingGate[]): Record<string, GateRow[]> {
   const sorted = [...configs].sort((a, b) => a.order - b.order);
@@ -28,7 +29,7 @@ function App() {
   const [gates, setGates] = useState<TimingGate[]>([]);
   const [configs, setConfigs] = useState<GateConfig[]>([]);
   const [telemetry, setTelemetry] = useState<Telemetry[]>([]);
-  const fake = true;
+  const fake = false;
 
   const fetchConfigs = () =>
     fetch("/gate-config").then(r => r.json()).then(setConfigs).catch(() => {});
@@ -74,6 +75,10 @@ function App() {
     <div className="h-screen flex flex-col bg-background">
       <header className="flex items-center gap-3 px-6 py-3 border-b shrink-0">
         <span className="font-semibold">SDM Telemetry</span>
+        <Button
+          variant="outline"
+          onClick={() => window.open("/timing/export.csv", "_blank")}
+        >Export Timing</Button>
         <div className="ml-auto">
           <ThemeToggle />
         </div>
