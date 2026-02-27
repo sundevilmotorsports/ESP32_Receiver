@@ -34,6 +34,13 @@ function App() {
   const fetchConfigs = () =>
     fetch("/gate-config").then(r => r.json()).then(setConfigs).catch(() => {});
 
+  const postConfig = (cfg: GateConfig): Promise<void> =>
+    fetch("/gate-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    }).then(() => {});
+
   const save = (cfg: GateConfig): Promise<void> => {
     if (fake) {
       setConfigs(prev =>
@@ -43,11 +50,21 @@ function App() {
       );
       return Promise.resolve();
     }
-    return fetch("/gate-config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cfg),
-    }).then(fetchConfigs);
+    return postConfig(cfg).then(fetchConfigs);
+  };
+
+  const swapOrder = (a: GateConfig, b: GateConfig): void => {
+    if (fake) {
+      setConfigs(prev => prev.map(c => {
+        if (c.mac === a.mac) return { ...c, order: b.order };
+        if (c.mac === b.mac) return { ...c, order: a.order };
+        return c;
+      }));
+      return;
+    }
+    postConfig({ ...a, order: b.order })
+      .then(() => postConfig({ ...b, order: a.order }))
+      .then(fetchConfigs);
   };
 
   useEffect(() => {
@@ -61,7 +78,20 @@ function App() {
     } else {
       fetchConfigs();
       const id = setInterval(() => {
-        fetch("/timing").then(r => r.json()).then(setGates).catch(() => {});
+        fetch("/timing").then(r => r.json()).then((newGates: TimingGate[]) => {
+          setGates(newGates);
+          setConfigs(prev => {
+            const toRegister = newGates.filter(g => !prev.find(c => c.mac === g.mac));
+            if (toRegister.length === 0) return prev;
+            const next = [...prev];
+            for (const g of toRegister) {
+              const newCfg: GateConfig = { mac: g.mac, mode: "delta", group: "", order: next.length };
+              next.push(newCfg);
+              postConfig(newCfg).then(fetchConfigs);
+            }
+            return next;
+          });
+        }).catch(() => {});
         fetch("/telemetry").then(r => r.json()).then(setTelemetry).catch(() => {});
       }, 500);
       return () => clearInterval(id);
@@ -87,7 +117,7 @@ function App() {
       <main className="flex flex-1 gap-6 p-6 overflow-hidden">
         <aside className="flex flex-col gap-3 overflow-y-auto">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Timing Gates</p>
-          <GatesPanel groups={groups} onSave={save} />
+          <GatesPanel groups={groups} allConfigs={configs} onSave={save} onSwap={swapOrder} />
         </aside>
 
         <Separator orientation="vertical" />

@@ -6,11 +6,13 @@ import { Input } from "@/components/ui/input";
 import type { GateConfig, GateRow } from "@/lib/types";
 import { fmt, fmtDiff } from "@/lib/types";
 
-interface Props { groups: Record<string, GateRow[]>; onSave: (cfg: GateConfig) => void; }
+interface Props { groups: Record<string, GateRow[]>; allConfigs: GateConfig[]; onSave: (cfg: GateConfig) => void; onSwap: (a: GateConfig, b: GateConfig) => void; }
 
-export function GatesPanel({ groups, onSave }: Props) {
+export function GatesPanel({ groups, allConfigs, onSave, onSwap }: Props) {
   if (!Object.keys(groups).length)
     return <p className="text-sm text-muted-foreground text-center py-8">No gates detected</p>;
+
+  const globalOrder = [...allConfigs].sort((a, b) => a.order - b.order);
 
   return (
     <div className="space-y-3">
@@ -28,9 +30,16 @@ export function GatesPanel({ groups, onSave }: Props) {
               {isSeries && <span className="ml-auto font-mono text-sm font-semibold">{fmtDiff(first, last)}</span>}
             </CardHeader>
             <CardContent className="space-y-3">
-              {rows.map((row, idx) => (
-                <div key={row.config.mac} className="space-y-2">
-                  {isSeries && idx > 0 && (
+              {rows.map((row, idx) => {
+                // Find position in the global order so ↑/↓ can cross group boundaries
+                const globalIdx = globalOrder.findIndex(c => c.mac === row.config.mac);
+                const prevGlobal = globalIdx > 0 ? globalOrder[globalIdx - 1] : null;
+                const nextGlobal = globalIdx >= 0 && globalIdx < globalOrder.length - 1 ? globalOrder[globalIdx + 1] : null;
+
+                // Within a series group, prefer in-group neighbours for the split-time display,
+                // but always use global neighbours for the actual swap target.
+                return (
+                <div key={row.config.mac} className="space-y-2">                  {isSeries && idx > 0 && (
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-px bg-border" />
                       <span className="text-xs font-mono text-primary">+{fmtDiff(rows[idx - 1].gate?.timestamp_us ?? 0, row.gate?.timestamp_us ?? 0)}</span>
@@ -40,15 +49,11 @@ export function GatesPanel({ groups, onSave }: Props) {
                   <div className="flex items-start gap-2">
                     <div className="flex flex-col gap-1 pt-1">
                       <Button size="icon" variant="ghost" className="h-6 w-6"
-                        onClick={() => {
-                          const swap = rows[idx - 1];
-                          if (swap) { onSave({ ...row.config, order: swap.config.order }); onSave({ ...swap.config, order: row.config.order }); }
-                        }} disabled={idx === 0}>↑</Button>
+                        onClick={() => { if (prevGlobal) onSwap(row.config, prevGlobal); }}
+                        disabled={!prevGlobal}>↑</Button>
                       <Button size="icon" variant="ghost" className="h-6 w-6"
-                        onClick={() => {
-                          const swap = rows[idx + 1];
-                          if (swap) { onSave({ ...row.config, order: swap.config.order }); onSave({ ...swap.config, order: row.config.order }); }
-                        }} disabled={idx === rows.length - 1}>↓</Button>
+                        onClick={() => { if (nextGlobal) onSwap(row.config, nextGlobal); }}
+                        disabled={!nextGlobal}>↓</Button>
                     </div>
                     <div className="flex-1 space-y-2">
                       <div className="flex items-center justify-between">
@@ -76,7 +81,9 @@ export function GatesPanel({ groups, onSave }: Props) {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
+
             </CardContent>
           </Card>
         );

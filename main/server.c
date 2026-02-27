@@ -486,25 +486,39 @@ static esp_err_t gate_config_get_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// POST /gate-config  body: {"mac":"AA:BB:CC:DD:EE:FF","mode":"delta|series","group":"name"}
+// POST /gate-config  body: {"mac":"AA:BB:CC:DD:EE:FF","mode":"delta|series","group":"name","order":N}
 static esp_err_t gate_config_post_handler(httpd_req_t *req) {
     set_cors(req);
 
-    char body[128];
-    int recv_size = (req->content_len < sizeof(body) - 1) ? req->content_len : sizeof(body) - 1;
-    int ret = httpd_req_recv(req, body, recv_size);
-    if (ret <= 0) { httpd_resp_send_408(req); return ESP_FAIL; }
-    body[ret] = '\0';
+    char body[256];
+    int total = 0;
+    int remaining = sizeof(body) - 1;
+    while (remaining > 0) {
+        int r = httpd_req_recv(req, body + total, remaining);
+        if (r < 0) {
+            if (r == HTTPD_SOCK_ERR_TIMEOUT) continue;
+            httpd_resp_send_408(req);
+            return ESP_FAIL;
+        }
+        if (r == 0) break;
+        total += r;
+        remaining -= r;
+    }
+    if (total == 0) { httpd_resp_send_408(req); return ESP_FAIL; }
+    body[total] = '\0';
 
-    // Minimal JSON parse: pull out mac, mode, group, order
+    ESP_LOGI(TAG, "gate-config POST body (%d bytes): %s", total, body);
+
     char mac[18] = {0}, mode[16] = {0}, group[32] = {0};
     int order = -1;
 
     char* p;
-    if ((p = strstr(body, "\"mac\"")))   sscanf(p, "\"mac\":\"%17[^\"]\"", mac);
-    if ((p = strstr(body, "\"mode\"")))  sscanf(p, "\"mode\":\"%15[^\"]\"", mode);
-    if ((p = strstr(body, "\"group\":"))) sscanf(p, "\"group\":\"%31[^\"]\"", group);
-    if ((p = strstr(body, "\"order\":"))) sscanf(p, "\"order\":%d", &order);
+    if ((p = strstr(body, "\"mac\"")))    sscanf(p, "\"mac\":\"%17[^\"]\"", mac);
+    if ((p = strstr(body, "\"mode\"")))   sscanf(p, "\"mode\":\"%15[^\"]\"", mode);
+    if ((p = strstr(body, "\"group\"")))  sscanf(p, "\"group\":\"%31[^\"]\"", group);
+    if ((p = strstr(body, "\"order\"")))  sscanf(p, "\"order\":%d", &order);
+
+    ESP_LOGI(TAG, "Parsed: mac='%s' mode='%s' group='%s' order=%d", mac, mode, group, order);
 
     if (mac[0] == '\0') {
         httpd_resp_set_type(req, "text/plain");
@@ -519,14 +533,18 @@ static esp_err_t gate_config_post_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
-    if (strcmp(mode, "series") == 0) cfg->mode = GATE_MODE_SERIES;
-    else cfg->mode = GATE_MODE_DELTA;
+    if (mode[0] != '\0') {
+        cfg->mode = (strcmp(mode, "series") == 0) ? GATE_MODE_SERIES : GATE_MODE_DELTA;
+    }
 
+    // group is always present in the payload (may be empty string)
     strncpy(cfg->group, group, sizeof(cfg->group) - 1);
     cfg->group[sizeof(cfg->group) - 1] = '\0';
+
     if (order >= 0) cfg->order = order;
 
-    ESP_LOGI(TAG, "Gate config: mac=%s mode=%s group=%s order=%d", cfg->mac, mode, cfg->group, cfg->order);
+    ESP_LOGI(TAG, "Gate config saved: mac=%s mode=%d group='%s' order=%d",
+             cfg->mac, cfg->mode, cfg->group, cfg->order);
 
     httpd_resp_set_type(req, "text/plain");
     httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
