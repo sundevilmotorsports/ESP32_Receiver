@@ -33,7 +33,6 @@ mac_address_list_t* get_mac_list(void) {
     return &mac_list;
 }
 
-static uint8_t s_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static TimerHandle_t ack_timer;
 static TimerHandle_t ping_timer;
 

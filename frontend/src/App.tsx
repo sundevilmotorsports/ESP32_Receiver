@@ -7,6 +7,7 @@ import type { GateConfig, GateRow, TimingGate, Telemetry } from "@/lib/types";
 import { FAKE_CONFIGS, generateFakeGates, generateFakeTelemetry } from "@/lib/types";
 import { ThemeToggle } from "@/components/theme-toggle.tsx";
 import {Button} from "@/components/ui/button.tsx";
+import {Input} from "@/components/ui/input.tsx";
 
 function buildGroups(configs: GateConfig[], gates: TimingGate[]): Record<string, GateRow[]> {
   const sorted = [...configs].sort((a, b) => a.order - b.order);
@@ -101,6 +102,8 @@ function App() {
   const telemMap = Object.fromEntries(telemetry.map(t => [t.key, t.value]));
   const groups = buildGroups(configs, gates);
 
+  const [loggerName, setLoggerName] = useState<string>("");
+
   return (
     <div className="h-screen flex flex-col bg-background">
       <header className="flex items-center gap-3 px-6 py-3 border-b shrink-0">
@@ -109,9 +112,17 @@ function App() {
           variant="outline"
           onClick={() => window.open("/timing/export.csv", "_blank")}
         >Export Timing</Button>
+
+        <Input placeholder="Logger Name" className="max-w-48"
+               onKeyDown={e => e.key === "Enter" && setLoggerName((e.target as HTMLInputElement).value)}
+               onBlur={e => setLoggerName(e.target.value)} />
+        <Button size="sm" variant="outline"
+                onClick={() => fetch("/loggername", { method: "POST", body: loggerName })}>Set</Button>
+
         <div className="ml-auto">
           <ThemeToggle />
         </div>
+
       </header>
 
       <main className="flex flex-1 gap-6 p-6 overflow-hidden">

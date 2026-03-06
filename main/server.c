@@ -429,6 +429,67 @@ static esp_err_t get_gate_data_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+esp_err_t send_set_name_command(const uint8_t* dest_mac, const char* name) {
+    espnow_data_t *buf = malloc(sizeof(espnow_data_t));
+    if (buf == NULL) {
+        ESP_LOGE(TAG, "Malloc send buffer fail");
+        return ESP_ERR_NO_MEM;
+    }
+
+    buf->type = ESPNOW_GATE_IDENT;
+    buf->seq_num = s_espnow_seq[ESPNOW_DATA_UNICAST]++;
+
+    size_t name_len = strnlen(name, sizeof(buf->data) - 1);
+    memcpy(buf->data, name, name_len);
+    buf->data[name_len] = '\0';
+    buf->len = (uint8_t)(name_len + 1);
+
+    buf->crc = 0;
+    buf->crc = esp_crc16_le(UINT16_MAX, (uint8_t const *)buf, sizeof(espnow_data_t));
+
+    const esp_err_t ret = esp_now_send(dest_mac, (uint8_t *)buf, sizeof(espnow_data_t));
+    free(buf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Send set-name error: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ESP_LOGI(TAG, "Sent set-name '%s' to " MACSTR, name, MAC2STR(dest_mac));
+    return ESP_OK;
+}
+
+static esp_err_t set_logger_name_handler(httpd_req_t *req) {
+    set_cors(req);
+
+    char content[100];
+    size_t recv_size = (req->content_len < sizeof(content) - 1) ? req->content_len : sizeof(content) - 1;
+
+    int ret = httpd_req_recv(req, content, recv_size);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
+
+    content[ret] = '\0';
+
+    ESP_LOGI(TAG, "Received POST data: %s", content);
+    ESP_LOGI(TAG, "Requested to set logger file name: %s", content);
+
+    esp_err_t result = send_set_name_command(s_broadcast_mac, content);
+
+    if (result == ESP_OK) {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "OK", HTTPD_RESP_USE_STRLEN);
+    } else {
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_send(req, "Failed to set name", HTTPD_RESP_USE_STRLEN);
+    }
+
+    return result;
+}
+
 static const httpd_uri_t telemetry = {
     .uri       = "/telemetry/*",
     .method    = HTTP_GET,
@@ -461,6 +522,13 @@ static const httpd_uri_t get_gates_data = {
     .uri       = "/timing",
     .method    = HTTP_GET,
     .handler   = get_gate_data_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t set_logger_name = {
+    .uri       = "/loggername",
+    .method    = HTTP_POST,
+    .handler   = set_logger_name_handler,
     .user_ctx  = NULL
 };
 
@@ -634,6 +702,8 @@ httpd_handle_t start(void) {
         httpd_register_uri_handler(server, &gate_config_get);
         httpd_register_uri_handler(server, &gate_config_post);
         httpd_register_uri_handler(server, &gate_history_csv);
+
+        httpd_register_uri_handler(server, &set_logger_name);
 
         return server;
     }

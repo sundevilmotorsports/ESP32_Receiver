@@ -10,6 +10,8 @@
 
 #include "esp_now.h"
 
+static uint8_t s_broadcast_mac[ESP_NOW_ETH_ALEN] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+
 typedef enum {
     ESPNOW_SEND_CB,
     ESPNOW_RECV_CB,
@@ -22,6 +24,7 @@ typedef enum {
     ESPNOW_GATE_IDENT,
     ESPNOW_DATA_OK,
     ESPNOW_TELEMETRY,
+    ESPNOW_SET_LOGGER_NAME,
 } espnow_msg_type_t;
 
 typedef enum {
