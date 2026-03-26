@@ -157,56 +157,6 @@ static const httpd_uri_t status = {
     .user_ctx  = NULL
 };
 
-static void escape_json_string(char* dest, const char* src, size_t dest_size) {
-    size_t dest_pos = 0;
-    size_t src_len = strlen(src);
-
-    for (size_t i = 0; i < src_len && dest_pos < dest_size - 1; i++) {
-        char c = src[i];
-
-        if (dest_pos >= dest_size - 6) break;
-
-        switch (c) {
-            case '"':
-                dest[dest_pos++] = '\\';
-                dest[dest_pos++] = '"';
-                break;
-            case '\\':
-                dest[dest_pos++] = '\\';
-                dest[dest_pos++] = '\\';
-                break;
-            case '\b':
-                dest[dest_pos++] = '\\';
-                dest[dest_pos++] = 'b';
-                break;
-            case '\f':
-                dest[dest_pos++] = '\\';
-                dest[dest_pos++] = 'f';
-                break;
-            case '\n':
-                dest[dest_pos++] = '\\';
-                dest[dest_pos++] = 'n';
-                break;
-            case '\r':
-                dest[dest_pos++] = '\\';
-                dest[dest_pos++] = 'r';
-                break;
-            case '\t':
-                dest[dest_pos++] = '\\';
-                dest[dest_pos++] = 't';
-                break;
-            default:
-                if (c < 0x20 || c == 0x7F) {
-                    dest_pos += snprintf(dest + dest_pos, dest_size - dest_pos, "\\u%04x", (unsigned char)c);
-                } else {
-                    dest[dest_pos++] = c;
-                }
-                break;
-        }
-    }
-    dest[dest_pos] = '\0';
-}
-
 void addString(const char* key, const char* value) {
     hashtable_insert(&table, key, value);
 }
@@ -262,7 +212,7 @@ static esp_err_t telemetry_get_handler(httpd_req_t *req) {
 
     ESP_LOGI(TAG, "Telemetry request for key: %s", key);
 
-    const char* response = hashtable_get(&table, key);
+    const char* response = hashtable_get(&table, (char*)key);
 
     if (response == NULL) {
         httpd_resp_set_type(req, "text/plain");

@@ -424,10 +424,46 @@ void espnow_task(void *pvParameter) {
                                              b ? " %02X" : "%02X", payload[pos + b]);
                         }
 
+                        if (segments[seg].id == 0x02) { // IMU Gyro
+                            if (segments[seg].len >= 6) {
+                                int16_t gx = (int16_t)((payload[pos + 0] << 8) | payload[pos + 1]);
+                                int16_t gy = (int16_t)((payload[pos + 2] << 8) | payload[pos + 3]);
+                                int16_t gz = (int16_t)((payload[pos + 4] << 8) | payload[pos + 5]);
+
+                                float fgx = gx * 17.50f;
+                                float fgy = gy * 17.50f;
+                                float fgz = gz * 17.50f;
+
+                                char conv[64];
+                                snprintf(conv, sizeof(conv), "%.2f,%.2f,%.2f", fgx, fgy, fgz);
+                                addString(segments[seg].name, conv);
+
+                                pos += segments[seg].len;
+                                continue;
+                            }
+                        } else if (segments[seg].id == 0x03) { // IMU Acl
+                            if (segments[seg].len >= 6) {
+                                int16_t ax = (int16_t)((payload[pos + 0] << 8) | payload[pos + 1]);
+                                int16_t ay = (int16_t)((payload[pos + 2] << 8) | payload[pos + 3]);
+                                int16_t az = (int16_t)((payload[pos + 4] << 8) | payload[pos + 5]);
+
+                                float fax = ((float)ax * 0.122f) / 1000.0f;
+                                float fay = ((float)ay * 0.122f) / 1000.0f;
+                                float faz = ((float)az * 0.122f) / 1000.0f;
+
+                                char conv[64];
+                                snprintf(conv, sizeof(conv), "%.6f,%.6f,%.6f", fax, fay, faz);
+                                addString(segments[seg].name, conv);
+
+                                pos += segments[seg].len;
+                                continue;
+                            }
+                        }
                         addString(segments[seg].name, hex);
                         // ESP_LOGI(TAG, "Telemetry %s = %s", segments[seg].name, hex);
 
                         pos += segments[seg].len;
+                        ESP_LOGI(TAG, "Recv Telemetry");
                     }
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));

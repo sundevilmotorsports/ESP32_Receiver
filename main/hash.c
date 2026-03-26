@@ -4,7 +4,7 @@
 
 #define TABLE_SIZE 100
 
-static int key_hash(const char *key) {
+int key_hash(const char *key) {
     unsigned int hash = 0;
     while (*key) hash = (hash * 31) + (*key++);
     return (int)(hash % TABLE_SIZE);
@@ -21,7 +21,7 @@ struct HashTable hashtable_create() {
 void hashtable_insert(struct HashTable *table, const char *key, const char *value) {
     if (!table || !key) return;
 
-    int index = key_hash(key);
+    const int index = key_hash(key);
 
     // Linear probe: find existing slot for this key, or first empty slot
     for (int i = 0; i < TABLE_SIZE; i++) {

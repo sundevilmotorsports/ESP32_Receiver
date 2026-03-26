@@ -118,7 +118,7 @@ function App() {
                onBlur={e => setLoggerName(e.target.value)} />
         <Button size="sm" variant="outline"
                 onClick={() => fetch("/loggername", { method: "POST", body: loggerName })}>Set</Button>
-
+2
         <div className="ml-auto">
           <ThemeToggle />
         </div>
