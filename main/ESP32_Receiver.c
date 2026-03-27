@@ -36,6 +36,8 @@ mac_address_list_t* get_mac_list(void) {
 static TimerHandle_t ack_timer;
 static TimerHandle_t ping_timer;
 
+uint32_t lastTelemetryPing = 0;
+
 static const char *TAG = "receiver";
 
 uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
@@ -400,6 +402,13 @@ void espnow_task(void *pvParameter) {
                     }
                 } else if (ret == ESPNOW_TELEMETRY) {
                     // ESP_LOGI(TAG, "Received telemetry from "MACSTR"", MAC2STR(recv_cb->mac_addr));
+
+                    uint32_t time_ms = esp_timer_get_time() / (int64_t)1000;
+                    char time_str[16];
+                    snprintf(time_str, sizeof(time_str), "%lu", time_ms - lastTelemetryPing);
+                    addString("telemetryPing", time_str);
+
+                    lastTelemetryPing = time_ms;
 
                     const uint8_t *payload = packet->data;
                     size_t payload_len = packet->len;

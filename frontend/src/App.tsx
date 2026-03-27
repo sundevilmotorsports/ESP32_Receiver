@@ -30,6 +30,7 @@ function App() {
   const [gates, setGates] = useState<TimingGate[]>([]);
   const [configs, setConfigs] = useState<GateConfig[]>([]);
   const [telemetry, setTelemetry] = useState<Telemetry[]>([]);
+  const [recvConnected, setRecvConnected] = useState<boolean>(false);
   const fake = false;
 
   const fetchConfigs = () =>
@@ -68,6 +69,12 @@ function App() {
       .then(fetchConfigs);
   };
 
+  const fetchWithTimeout = (input: RequestInfo, init: RequestInit = {}, timeoutMs = 1000) => {
+    const ac = new AbortController();
+    const id = window.setTimeout(() => ac.abort(), timeoutMs);
+    return fetch(input, { ...init, signal: ac.signal }).finally(() => clearTimeout(id));
+  };
+
   useEffect(() => {
     if (fake) {
       setConfigs(FAKE_CONFIGS);
@@ -79,21 +86,38 @@ function App() {
     } else {
       fetchConfigs();
       const id = setInterval(() => {
-        fetch("/timing").then(r => r.json()).then((newGates: TimingGate[]) => {
-          setGates(newGates);
-          setConfigs(prev => {
-            const toRegister = newGates.filter(g => !prev.find(c => c.mac === g.mac));
-            if (toRegister.length === 0) return prev;
-            const next = [...prev];
-            for (const g of toRegister) {
-              const newCfg: GateConfig = { mac: g.mac, mode: "delta", group: "", order: next.length };
-              next.push(newCfg);
-              postConfig(newCfg).then(fetchConfigs);
-            }
-            return next;
+        fetchWithTimeout("/timing", {}, 1200)
+          .then(r => r.json())
+          .then((newGates: TimingGate[]) => {
+            setGates(newGates);
+            setConfigs(prev => {
+              const toRegister = newGates.filter(g => !prev.find(c => c.mac === g.mac));
+              if (toRegister.length === 0) return prev;
+              const next = [...prev];
+              for (const g of toRegister) {
+                const newCfg: GateConfig = { mac: g.mac, mode: "delta", group: "", order: next.length };
+                next.push(newCfg);
+                postConfig(newCfg).then(fetchConfigs);
+              }
+              return next;
+            });
+          }).catch(() => {});
+
+        fetchWithTimeout("/telemetry", {}, 1200)
+          .then(r => r.json())
+          .then(v => {
+            setTelemetry(v);
+          }).catch(() => {});
+
+        fetchWithTimeout("/status", {}, 800)
+          .then(r => r.text())
+          .then(v => {
+            const ok = v === "OK";
+            setRecvConnected(ok);
+          })
+          .catch(() => {
+            setRecvConnected(false);
           });
-        }).catch(() => {});
-        fetch("/telemetry").then(r => r.json()).then(setTelemetry).catch(() => {});
       }, 500);
       return () => clearInterval(id);
     }
@@ -102,12 +126,20 @@ function App() {
   const telemMap = Object.fromEntries(telemetry.map(t => [t.key, t.value]));
   const groups = buildGroups(configs, gates);
 
+  const lastTelemPing = (() => {
+    const raw = telemMap['telemetryPing'] ?? telemMap.telemetryPing;
+    if (raw === undefined || raw === null) return 9999;
+    const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+    return Number.isFinite(n) ? n : 9999;
+  })();
+
   const [loggerName, setLoggerName] = useState<string>("");
 
   return (
     <div className="h-screen flex flex-col bg-background">
       <header className="flex items-center gap-3 px-6 py-3 border-b shrink-0">
         <span className="font-semibold">SDM Telemetry</span>
+        <p>{recvConnected ? "Connected" : "Disconnected"}</p>
         <Button
           variant="outline"
           onClick={() => window.open("/timing/export.csv", "_blank")}
@@ -118,7 +150,6 @@ function App() {
                onBlur={e => setLoggerName(e.target.value)} />
         <Button size="sm" variant="outline"
                 onClick={() => fetch("/loggername", { method: "POST", body: loggerName })}>Set</Button>
-2
         <div className="ml-auto">
           <ThemeToggle />
         </div>
@@ -134,7 +165,10 @@ function App() {
         <Separator orientation="vertical" />
 
         <section className="flex-1 flex flex-col gap-3 overflow-y-auto">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Telemetry</p>
+          <div className="flex gap-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Telemetry</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">{lastTelemPing < 2500 && recvConnected ? "Connected" : "Disconnected"}</p>
+          </div>
           <TelemetryPanel telemMap={telemMap} />
         </section>
       </main>
@@ -143,3 +177,4 @@ function App() {
 }
 
 export default App;
+
