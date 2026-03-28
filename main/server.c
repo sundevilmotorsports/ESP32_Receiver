@@ -666,7 +666,12 @@ void server_start() {
     httpd_handle_t server = start();
 
     while (server) {
-        sleep(5);
+        sleep(1);
+
+        uint32_t time_ms = esp_timer_get_time() / (int64_t)1000;
+        char time_str[16];
+        snprintf(time_str, sizeof(time_str), "%lu", time_ms - lastTelemetryPing);
+        addString("telemetryPing", time_str);
     }
 }
 

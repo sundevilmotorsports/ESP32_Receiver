@@ -85,24 +85,11 @@ typedef struct {
 /* Sequence counters — defined in ESP32_Receiver.c, declared here for server.c */
 extern uint16_t s_espnow_seq[ESPNOW_DATA_MAX];
 
-static const struct { uint8_t id; uint8_t len; const char* name; } segments[] = {
-    { 0x01, 1, "drs"       },
-    { 0x02, 6, "imu_gyro"  },
-    { 0x03, 6, "imu_accel" },
-    { 0x04, 6, "wheel_fl"  },
-    { 0x05, 6, "wheel_fr"  },
-    { 0x06, 6, "wheel_rr"  },
-    { 0x07, 6, "wheel_rl"  },
-    { 0x08, 2, "sg_fl"     },
-    { 0x09, 2, "sg_fr"     },
-    { 0x0A, 2, "sg_rr"     },
-    { 0x0B, 2, "sg_rl"     },
-    { 0x0C, 3, "eng_f0"    },
-    { 0x0D, 3, "eng_f1"    },
-    { 0x0E, 1, "eng_f2"    },
-    { 0x0F, 3, "shifter"   },
-};
-static const int NUM_SEGMENTS = sizeof(segments) / sizeof(segments[0]);
+extern uint32_t lastTelemetryPing;
+
+typedef struct { uint8_t id; uint8_t len; const char* name; } segment_t;
+extern const segment_t segments[];
+extern const int NUM_SEGMENTS;
 
 void espnow_deinit(espnow_send_param_t *send_param);
 esp_err_t espnow_init(void);

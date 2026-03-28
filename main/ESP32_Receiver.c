@@ -36,11 +36,31 @@ mac_address_list_t* get_mac_list(void) {
 static TimerHandle_t ack_timer;
 static TimerHandle_t ping_timer;
 
-uint32_t lastTelemetryPing = 0;
-
 static const char *TAG = "receiver";
 
 uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
+
+// single definition of lastTelemetryPing (declared extern in the header)
+uint32_t lastTelemetryPing = 0;
+
+const segment_t segments[] = {
+    { 0x01, 1, "drs"       },
+    { 0x02, 6, "imu_gyro"  },
+    { 0x03, 6, "imu_accel" },
+    { 0x04, 6, "wheel_fl"  },
+    { 0x05, 6, "wheel_fr"  },
+    { 0x06, 6, "wheel_rr"  },
+    { 0x07, 6, "wheel_rl"  },
+    { 0x08, 2, "sg_fl"     },
+    { 0x09, 2, "sg_fr"     },
+    { 0x0A, 2, "sg_rr"     },
+    { 0x0B, 2, "sg_rl"     },
+    { 0x0C, 7, "eng_f0"    },
+    { 0x0D, 7, "eng_f1"    },
+    { 0x0E, 4, "eng_f2"    },
+    { 0x0F, 3, "shifter"   },
+};
+const int NUM_SEGMENTS = sizeof(segments) / sizeof(segments[0]);
 
 void mac_to_string(const uint8_t *mac_addr, char *mac_string) {
     snprintf(mac_string, 18, "%02x:%02x:%02x:%02x:%02x:%02x",

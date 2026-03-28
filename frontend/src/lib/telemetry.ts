@@ -27,9 +27,9 @@ export function decode(key: string, raw: string): DecodedTelemetry | null {
     case "sg_fr":     return { label: "FR",      fields: [{ name: "Pos", value: u16be(b, 0) + "" }] };
     case "sg_rr":     return { label: "RR",      fields: [{ name: "Pos", value: u16be(b, 0) + "" }] };
     case "sg_rl":     return { label: "RL",      fields: [{ name: "Pos", value: u16be(b, 0) + "" }] };
-    case "eng_f0":    return { label: "Engine",  fields: [{ name: "ECT",  value: b[0] + " °C" }, { name: "Oil", value: u16be(b, 1) + " kPa" }] };
-    case "eng_f1":    return { label: "Engine",  fields: [{ name: "TPS",  value: b[0] + "%" },   { name: "WSPD", value: u16be(b, 1) + " km/h" }] };
-    case "eng_f2":    return { label: "Engine",  fields: [{ name: "APS",  value: b[0] + "%" }] };
+    case "eng_f0":    return { label: "Engine",  fields: [{ name: "RPM", value: u16be(b, 0) + " rpm" }, { name: "ECT", value: b[2] + " °C" }, { name: "Oil Temp", value: b[3] + " °C" }, { name: "Oil Press", value: u16be(b, 4) + " kPa" }, { name: "Neutral", value: b[6] ? "Yes" : "No" }] };
+    case "eng_f1":    return { label: "Engine",  fields: [{ name: "Lambda", value: b[0] + "" }, { name: "TPS", value: b[1] + "%" }, { name: "Gear", value: b[2] + "" }, { name: "WSPD", value: u16be(b, 3) + " km/h" }, { name: "Oil Press", value: u16be(b, 5) + " kPa" }] };
+    case "eng_f2":    return { label: "Engine",  fields: [{ name: "APS", value: u16be(b, 0) + "" }, { name: "Fuel Press", value: u16be(b, 2) + " kPa" }] };
     case "shifter":   return { label: "Shifter", fields: [{ name: "S0", value: b[0] + "" }, { name: "S1", value: b[1] + "" }, { name: "S2", value: b[2] + "" }] };
     default: return null;
   }
@@ -46,6 +46,6 @@ export const TELEM_KEYS = [
   {k:"drs",b:1},{k:"imu_gyro",b:6},{k:"imu_accel",b:6},
   {k:"wheel_fl",b:6},{k:"wheel_fr",b:6},{k:"wheel_rr",b:6},{k:"wheel_rl",b:6},
   {k:"sg_fl",b:2},{k:"sg_fr",b:2},{k:"sg_rr",b:2},{k:"sg_rl",b:2},
-  {k:"eng_f0",b:3},{k:"eng_f1",b:3},{k:"eng_f2",b:1},{k:"shifter",b:3},
+  {k:"eng_f0",b:7},{k:"eng_f1",b:7},{k:"eng_f2",b:4},{k:"shifter",b:3},
 ];
 
