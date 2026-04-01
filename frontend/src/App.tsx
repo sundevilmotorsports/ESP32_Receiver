@@ -171,7 +171,7 @@ function App() {
           .catch(() => {
             setRecvConnected(false);
           });
-      }, 500);
+      }, 100);
       return () => clearInterval(id);
     }
   }, [fake]);
