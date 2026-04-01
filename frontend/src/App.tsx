@@ -36,7 +36,7 @@ function App() {
   const [gateHistory, setGateHistory] = useState<Record<string, { diff_us: number; t: number }[]>>({});
   const prevGateTimestamps = useRef<Record<string, number>>({});
   const [recvConnected, setRecvConnected] = useState<boolean>(false);
-  const fake = true;
+  const fake = false;
 
   const recordGateHistory = (newGates: TimingGate[]) => {
     const prev = prevGateTimestamps.current;
