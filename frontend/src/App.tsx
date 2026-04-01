@@ -1,5 +1,5 @@
 import './App.css'
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Separator } from "@/components/ui/separator";
 import { GatesPanel } from "@/components/GatesPanel";
 import { TelemetryPanel } from "@/components/TelemetryPanel";
@@ -26,13 +26,34 @@ function buildGroups(configs: GateConfig[], gates: TimingGate[]): Record<string,
   return groups;
 }
 
+const GATE_HISTORY_MAX = 20;
+
 function App() {
   const [gates, setGates] = useState<TimingGate[]>([]);
   const [configs, setConfigs] = useState<GateConfig[]>([]);
   const [telemetry, setTelemetry] = useState<Telemetry[]>([]);
   const [telemHistory, setTelemHistory] = useState<Record<string, { t: number; raw: string }[]>>({});
+  const [gateHistory, setGateHistory] = useState<Record<string, { diff_us: number; t: number }[]>>({});
+  const prevGateTimestamps = useRef<Record<string, number>>({});
   const [recvConnected, setRecvConnected] = useState<boolean>(false);
   const fake = true;
+
+  const recordGateHistory = (newGates: TimingGate[]) => {
+    const prev = prevGateTimestamps.current;
+    const changed = newGates.filter(g => g.diff_us > 0 && g.timestamp_us !== (prev[g.mac] ?? 0));
+    if (!changed.length) return;
+    const now = Date.now();
+    setGateHistory(h => {
+      const next = { ...h };
+      for (const g of changed) {
+        const arr = next[g.mac] ? [...next[g.mac]] : [];
+        arr.push({ diff_us: g.diff_us, t: now });
+        next[g.mac] = arr.slice(-GATE_HISTORY_MAX);
+      }
+      return next;
+    });
+    for (const g of changed) prev[g.mac] = g.timestamp_us;
+  };
 
   const fetchConfigs = () =>
     fetch("/gate-config").then(r => r.json()).then(setConfigs).catch(() => {});
@@ -80,7 +101,9 @@ function App() {
     if (fake) {
       setConfigs(FAKE_CONFIGS);
       const id = setInterval(() => {
-        setGates(generateFakeGates());
+        const newGates = generateFakeGates();
+        setGates(newGates);
+        recordGateHistory(newGates);
         const generated = generateFakeTelemetry();
         setTelemetry(generated);
         setTelemHistory(prev => {
@@ -106,6 +129,7 @@ function App() {
           .then(r => r.json())
           .then((newGates: TimingGate[]) => {
             setGates(newGates);
+            recordGateHistory(newGates);
             setConfigs(prev => {
               const toRegister = newGates.filter(g => !prev.find(c => c.mac === g.mac));
               if (toRegister.length === 0) return prev;
@@ -188,7 +212,7 @@ function App() {
       <main className="flex flex-1 gap-6 p-6 overflow-hidden">
         <aside className="flex flex-col gap-3 overflow-y-auto">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Timing Gates</p>
-          <GatesPanel groups={groups} allConfigs={configs} onSave={save} onSwap={swapOrder} />
+          <GatesPanel groups={groups} allConfigs={configs} onSave={save} onSwap={swapOrder} gateHistory={gateHistory} />
         </aside>
 
         <Separator orientation="vertical" />
