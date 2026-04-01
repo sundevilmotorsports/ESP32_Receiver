@@ -30,8 +30,9 @@ function App() {
   const [gates, setGates] = useState<TimingGate[]>([]);
   const [configs, setConfigs] = useState<GateConfig[]>([]);
   const [telemetry, setTelemetry] = useState<Telemetry[]>([]);
+  const [telemHistory, setTelemHistory] = useState<Record<string, { t: number; raw: string }[]>>({});
   const [recvConnected, setRecvConnected] = useState<boolean>(false);
-  const fake = false;
+  const fake = true;
 
   const fetchConfigs = () =>
     fetch("/gate-config").then(r => r.json()).then(setConfigs).catch(() => {});
@@ -80,7 +81,22 @@ function App() {
       setConfigs(FAKE_CONFIGS);
       const id = setInterval(() => {
         setGates(generateFakeGates());
-        setTelemetry(generateFakeTelemetry());
+        const generated = generateFakeTelemetry();
+        setTelemetry(generated);
+        setTelemHistory(prev => {
+          const next = { ...prev };
+          const now = Date.now();
+          const windowMs = 30_000;
+          for (const item of generated) {
+            const arr = next[item.key] ? [...next[item.key]] : [];
+            arr.push({ t: now, raw: item.value });
+            // prune old entries outside the time window
+            const cutoff = now - windowMs;
+            const pruned = arr.filter(p => p.t >= cutoff);
+            next[item.key] = pruned;
+          }
+          return next;
+        });
       }, 500);
       return () => clearInterval(id);
     } else {
@@ -107,6 +123,19 @@ function App() {
           .then(r => r.json())
           .then(v => {
             setTelemetry(v);
+            setTelemHistory(prev => {
+              const next = { ...prev };
+              const now = Date.now();
+              const windowMs = 30_000; // keep last 30 seconds
+              for (const item of v) {
+                const arr = next[item.key] ? [...next[item.key]] : [];
+                arr.push({ t: now, raw: item.value });
+                const cutoff = now - windowMs;
+                const pruned = arr.filter(p => p.t >= cutoff);
+                next[item.key] = pruned;
+              }
+              return next;
+            });
           }).catch(() => {});
 
         fetchWithTimeout("/status", {}, 800)
@@ -169,7 +198,7 @@ function App() {
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">Telemetry</p>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">{lastTelemPing < 2500 && recvConnected ? "Connected" : "Disconnected"}</p>
           </div>
-          <TelemetryPanel telemMap={telemMap} />
+          <TelemetryPanel telemMap={telemMap} telemHistory={telemHistory} />
         </section>
       </main>
     </div>
@@ -177,4 +206,3 @@ function App() {
 }
 
 export default App;
-
