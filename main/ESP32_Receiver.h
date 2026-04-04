@@ -87,7 +87,7 @@ extern uint16_t s_espnow_seq[ESPNOW_DATA_MAX];
 
 extern uint32_t lastTelemetryPing;
 
-typedef struct { uint8_t id; uint8_t len; const char* name; } segment_t;
+typedef struct { uint8_t id; uint8_t len; uint8_t offset; const char* name; } segment_t;
 extern const segment_t segments[];
 extern const int NUM_SEGMENTS;
 

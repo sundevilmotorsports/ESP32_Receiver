@@ -44,21 +44,21 @@ uint16_t s_espnow_seq[ESPNOW_DATA_MAX] = { 0, 0 };
 uint32_t lastTelemetryPing = 0;
 
 const segment_t segments[] = {
-    { 0x01, 1, "drs"       },
-    { 0x02, 6, "imu_gyro"  },
-    { 0x03, 6, "imu_accel" },
-    { 0x04, 6, "wheel_fl"  },
-    { 0x05, 6, "wheel_fr"  },
-    { 0x06, 6, "wheel_rr"  },
-    { 0x07, 6, "wheel_rl"  },
-    { 0x08, 2, "sg_fl"     },
-    { 0x09, 2, "sg_fr"     },
-    { 0x0A, 2, "sg_rr"     },
-    { 0x0B, 2, "sg_rl"     },
-    { 0x0C, 7, "eng_f0"    },
-    { 0x0D, 7, "eng_f1"    },
-    { 0x0E, 4, "eng_f2"    },
-    { 0x0F, 3, "shifter"   },
+    { 0x01,  1,  0, "drs"       },
+    { 0x02,  6,  1, "imu_gyro"  },
+    { 0x03,  6,  7, "imu_accel" },
+    { 0x04,  6, 13, "wheel_fl"  },
+    { 0x05,  6, 19, "wheel_fr"  },
+    { 0x06,  6, 25, "wheel_rr"  },
+    { 0x07,  6, 31, "wheel_rl"  },
+    { 0x08,  2, 37, "sg_fl"     },
+    { 0x09,  2, 39, "sg_fr"     },
+    { 0x0A,  2, 41, "sg_rr"     },
+    { 0x0B,  2, 43, "sg_rl"     },
+    { 0x0C,  7, 45, "eng_f0"    },
+    { 0x0D,  7, 52, "eng_f1"    },
+    { 0x0E,  4, 59, "eng_f2"    },
+    { 0x0F,  3, 63, "shifter"   },
 };
 const int NUM_SEGMENTS = sizeof(segments) / sizeof(segments[0]);
 
@@ -421,78 +421,52 @@ void espnow_task(void *pvParameter) {
                         mac_list.mac_list[index].lastPing = esp_timer_get_time();
                     }
                 } else if (ret == ESPNOW_TELEMETRY) {
-                    // ESP_LOGI(TAG, "Received telemetry from "MACSTR"", MAC2STR(recv_cb->mac_addr));
-
                     uint32_t time_ms = esp_timer_get_time() / (int64_t)1000;
                     char time_str[16];
                     snprintf(time_str, sizeof(time_str), "%lu", time_ms - lastTelemetryPing);
                     addString("telemetryPing", time_str);
-
                     lastTelemetryPing = time_ms;
 
                     const uint8_t *payload = packet->data;
                     size_t payload_len = packet->len;
-                    size_t pos = 0;
 
-                    while (pos < payload_len) {
-                        uint8_t id = payload[pos++];
-
-                        int seg = -1;
-                        for (int s = 0; s < NUM_SEGMENTS; s++) {
-                            if (segments[s].id == id) { seg = s; break; }
-                        }
-                        if (seg < 0 || pos + segments[seg].len > payload_len) {
-                            ESP_LOGW(TAG, "Unknown or truncated telemetry id: 0x%02X at pos %zu", id, pos - 1);
-                            break;
+                    for (int s = 0; s < NUM_SEGMENTS; s++) {
+                        if ((size_t)(segments[s].offset + segments[s].len) > payload_len) {
+                            ESP_LOGW(TAG, "Packet too short for segment %s (offset=%d end=%d pkt_len=%zu)",
+                                     segments[s].name, segments[s].offset,
+                                     segments[s].offset + segments[s].len, payload_len);
+                            continue;
                         }
 
-                        char hex[64] = {0};
-                        int hpos = 0;
-                        for (int b = 0; b < segments[seg].len; b++) {
-                            hpos += snprintf(hex + hpos, sizeof(hex) - hpos,
-                                             b ? " %02X" : "%02X", payload[pos + b]);
-                        }
+                        const uint8_t *d = &payload[segments[s].offset];
 
-                        if (segments[seg].id == 0x02) { // IMU Gyro
-                            if (segments[seg].len >= 6) {
-                                int16_t gx = (int16_t)((payload[pos + 0] << 8) | payload[pos + 1]);
-                                int16_t gy = (int16_t)((payload[pos + 2] << 8) | payload[pos + 3]);
-                                int16_t gz = (int16_t)((payload[pos + 4] << 8) | payload[pos + 5]);
-
-                                float fgx = gx * 17.50f;
-                                float fgy = gy * 17.50f;
-                                float fgz = gz * 17.50f;
-
-                                char conv[64];
-                                snprintf(conv, sizeof(conv), "%.2f,%.2f,%.2f", fgx, fgy, fgz);
-                                addString(segments[seg].name, conv);
-
-                                pos += segments[seg].len;
-                                continue;
+                        if (segments[s].id == 0x02) { // IMU Gyro
+                            int16_t gx = (int16_t)((d[0] << 8) | d[1]);
+                            int16_t gy = (int16_t)((d[2] << 8) | d[3]);
+                            int16_t gz = (int16_t)((d[4] << 8) | d[5]);
+                            char conv[64];
+                            snprintf(conv, sizeof(conv), "%.2f,%.2f,%.2f",
+                                     gx * 17.50f, gy * 17.50f, gz * 17.50f);
+                            addString(segments[s].name, conv);
+                        } else if (segments[s].id == 0x03) { // IMU Accel
+                            int16_t ax = (int16_t)((d[0] << 8) | d[1]);
+                            int16_t ay = (int16_t)((d[2] << 8) | d[3]);
+                            int16_t az = (int16_t)((d[4] << 8) | d[5]);
+                            char conv[64];
+                            snprintf(conv, sizeof(conv), "%.6f,%.6f,%.6f",
+                                     ((float)ax * 0.122f) / 1000.0f,
+                                     ((float)ay * 0.122f) / 1000.0f,
+                                     ((float)az * 0.122f) / 1000.0f);
+                            addString(segments[s].name, conv);
+                        } else {
+                            char hex[64] = {0};
+                            int hpos = 0;
+                            for (int b = 0; b < segments[s].len; b++) {
+                                hpos += snprintf(hex + hpos, sizeof(hex) - hpos,
+                                                 b ? " %02X" : "%02X", d[b]);
                             }
-                        } else if (segments[seg].id == 0x03) { // IMU Acl
-                            if (segments[seg].len >= 6) {
-                                int16_t ax = (int16_t)((payload[pos + 0] << 8) | payload[pos + 1]);
-                                int16_t ay = (int16_t)((payload[pos + 2] << 8) | payload[pos + 3]);
-                                int16_t az = (int16_t)((payload[pos + 4] << 8) | payload[pos + 5]);
-
-                                float fax = ((float)ax * 0.122f) / 1000.0f;
-                                float fay = ((float)ay * 0.122f) / 1000.0f;
-                                float faz = ((float)az * 0.122f) / 1000.0f;
-
-                                char conv[64];
-                                snprintf(conv, sizeof(conv), "%.6f,%.6f,%.6f", fax, fay, faz);
-                                addString(segments[seg].name, conv);
-
-                                pos += segments[seg].len;
-                                continue;
-                            }
+                            addString(segments[s].name, hex);
                         }
-                        addString(segments[seg].name, hex);
-                        // ESP_LOGI(TAG, "Telemetry %s = %s", segments[seg].name, hex);
-
-                        pos += segments[seg].len;
-                        ESP_LOGI(TAG, "Recv Telemetry");
                     }
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));
