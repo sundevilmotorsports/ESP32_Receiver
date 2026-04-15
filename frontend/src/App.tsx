@@ -123,8 +123,12 @@ function App() {
       }, 500);
       return () => clearInterval(id);
     } else {
-      fetchConfigs();
       const id = setInterval(() => {
+        fetchWithTimeout("/gate-config")
+          .then(r => r.json())
+          .then(setConfigs)
+          .catch(() => {});
+
         fetchWithTimeout("/timing", {}, 1200)
           .then(r => r.json())
           .then((newGates: TimingGate[]) => {
