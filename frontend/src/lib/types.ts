@@ -3,7 +3,7 @@ import { TELEM_KEYS } from "./telemetry";
 const rnd = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 const fakeHex = (b: number) => Array.from({length: b}, () => rnd(0, 255).toString(16).toUpperCase().padStart(2, "0")).join(" ");
 
-export interface TimingGate   { mac: string; timestamp_us: number; diff_us: number; }
+export interface TimingGate   { mac: string; timestamp_us: number; diff_us: number; stuck?: boolean; }
 export interface GateConfig   { mac: string; mode: "delta" | "series"; group: string; order: number; }
 export interface GateRow      { config: GateConfig; gate: TimingGate | null; }
 export interface Telemetry    { key: string; value: string; }

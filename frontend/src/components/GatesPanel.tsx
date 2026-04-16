@@ -135,6 +135,9 @@ export function GatesPanel({ groups, allConfigs, onSave, onSwap, gateHistory = {
                         <div className="flex items-center justify-between gap-3">
                           <code className="text-xs text-muted-foreground shrink-0">{row.config.mac.split(':').slice(-4).join(':')}</code>
                           <div className="flex gap-3 items-center text-sm font-mono min-w-0">
+                            {row.gate?.stuck && (
+                              <Badge variant="destructive" className="animate-pulse text-xs px-1.5 py-0">STUCK</Badge>
+                            )}
                             <span className="text-muted-foreground">{fmt(row.gate?.timestamp_us ?? 0)}</span>
                             <span className="text-primary font-bold">{fmt(row.gate?.diff_us ?? 0)}</span>
                             {hist.length > 0 && (

@@ -372,6 +372,7 @@ void espnow_task(void *pvParameter) {
                             mac_to_string(recv_cb->mac_addr, mac_addr_string);
 
                             addGateTime(mac_addr_string, buffer);
+                            setGateStuck(mac_addr_string, false);
                             free(buffer);
 
                             espnow_data_t *ok_pkt = malloc(sizeof(espnow_data_t));
@@ -467,6 +468,35 @@ void espnow_task(void *pvParameter) {
                             }
                             addString(segments[s].name, hex);
                         }
+                    }
+                } else if (ret == ESPNOW_GATE_STUCK) {
+                    char mac_addr_string[18];
+                    mac_to_string(recv_cb->mac_addr, mac_addr_string);
+                    bool is_stuck = (packet->len > 0 && packet->data[0] == 1);
+                    ESP_LOGW(TAG, "Gate %s: %s", mac_addr_string, is_stuck ? "STUCK" : "cleared");
+                    setGateStuck(mac_addr_string, is_stuck);
+
+                    espnow_data_t *ok_pkt = malloc(sizeof(espnow_data_t));
+                    if (ok_pkt != NULL) {
+                        memset(ok_pkt, 0, sizeof(espnow_data_t));
+                        ok_pkt->type    = ESPNOW_DATA_OK;
+                        ok_pkt->seq_num = recv_seq;
+                        ok_pkt->len     = 0;
+                        ok_pkt->crc     = 0;
+                        ok_pkt->crc     = esp_crc16_le(UINT16_MAX, (uint8_t const *)ok_pkt, sizeof(espnow_data_t));
+
+                        if (!esp_now_is_peer_exist(recv_cb->mac_addr)) {
+                            esp_now_peer_info_t peer;
+                            memset(&peer, 0, sizeof(esp_now_peer_info_t));
+                            peer.channel = 1;
+                            peer.ifidx   = ESP_IF_WIFI_STA;
+                            peer.encrypt = false;
+                            memcpy(peer.peer_addr, recv_cb->mac_addr, ESP_NOW_ETH_ALEN);
+                            ESP_ERROR_CHECK(esp_now_add_peer(&peer));
+                        }
+
+                        esp_now_send(recv_cb->mac_addr, (uint8_t *)ok_pkt, sizeof(espnow_data_t));
+                        free(ok_pkt);
                     }
                 } else {
                     ESP_LOGI(TAG, "Received invalid data from: "MACSTR"", MAC2STR(recv_cb->mac_addr));

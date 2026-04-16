@@ -46,6 +46,7 @@ typedef struct {
     int64_t timestamps_us[MAX_GATE_HISTORY]; // absolute µs (esp_timer_get_time)
     int64_t diffs_us[MAX_GATE_HISTORY];      // delta from previous trigger for this gate
     int count;
+    bool stuck;
 } gate_history_t;
 
 static gate_history_t gate_history[MAX_GATE_CONFIGS];
@@ -113,6 +114,23 @@ void addGateTime(const char* mac_addr, const char* data) {
                 (MAX_GATE_HISTORY - 1) * sizeof(int64_t));
         hist->timestamps_us[MAX_GATE_HISTORY - 1] = timestamp_us;
         hist->diffs_us[MAX_GATE_HISTORY - 1]      = diff_us;
+    }
+}
+
+void setGateStuck(const char* mac_addr, bool stuck) {
+    for (int i = 0; i < gate_history_count; i++) {
+        if (strcmp(gate_history[i].mac_str, mac_addr) == 0) {
+            gate_history[i].stuck = stuck;
+            return;
+        }
+    }
+    // Gate not yet seen — create a history entry so the stuck state is stored
+    if (gate_history_count < MAX_GATE_CONFIGS) {
+        gate_history_t *hist = &gate_history[gate_history_count++];
+        strncpy(hist->mac_str, mac_addr, sizeof(hist->mac_str) - 1);
+        hist->mac_str[sizeof(hist->mac_str) - 1] = '\0';
+        hist->count = 0;
+        hist->stuck = stuck;
     }
 }
 
@@ -359,17 +377,26 @@ static esp_err_t get_gate_data_handler(httpd_req_t *req) {
     httpd_resp_sendstr_chunk(req, "[");
 
     bool first = true;
-    char chunk[96];
+    char chunk[128];
     for (int i = 0; keys && i < gates.size; i++) {
         if (keys[i] == NULL) continue;
         const char* value = hashtable_get(&gates, keys[i]);
         if (value == NULL) continue;
         int64_t timestamp_us, diff_us;
         sscanf(value, "%lld,%lld", &timestamp_us, &diff_us);
+
+        bool stuck = false;
+        for (int j = 0; j < gate_history_count; j++) {
+            if (strcmp(gate_history[j].mac_str, keys[i]) == 0) {
+                stuck = gate_history[j].stuck;
+                break;
+            }
+        }
+
         if (!first) httpd_resp_sendstr_chunk(req, ",");
         snprintf(chunk, sizeof(chunk),
-            "{\"mac\":\"%s\",\"timestamp_us\":%lld,\"diff_us\":%lld}",
-            keys[i], timestamp_us, diff_us);
+            "{\"mac\":\"%s\",\"timestamp_us\":%lld,\"diff_us\":%lld,\"stuck\":%s}",
+            keys[i], timestamp_us, diff_us, stuck ? "true" : "false");
         httpd_resp_sendstr_chunk(req, chunk);
         first = false;
     }

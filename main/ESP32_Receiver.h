@@ -25,6 +25,7 @@ typedef enum {
     ESPNOW_DATA_OK,
     ESPNOW_TELEMETRY,
     ESPNOW_SET_LOGGER_NAME,
+    ESPNOW_GATE_STUCK,
 } espnow_msg_type_t;
 
 typedef enum {
