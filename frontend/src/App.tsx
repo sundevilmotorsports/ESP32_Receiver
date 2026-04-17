@@ -78,14 +78,12 @@ function App() {
   };
 
   const swapOrder = (a: GateConfig, b: GateConfig): void => {
-    if (fake) {
-      setConfigs(prev => prev.map(c => {
-        if (c.mac === a.mac) return { ...c, order: b.order };
-        if (c.mac === b.mac) return { ...c, order: a.order };
-        return c;
-      }));
-      return;
-    }
+    setConfigs(prev => prev.map(c => {
+      if (c.mac === a.mac) return { ...c, order: b.order };
+      if (c.mac === b.mac) return { ...c, order: a.order };
+      return c;
+    }));
+    if (fake) return;
     postConfig({ ...a, order: b.order })
       .then(() => postConfig({ ...b, order: a.order }))
       .then(fetchConfigs);
