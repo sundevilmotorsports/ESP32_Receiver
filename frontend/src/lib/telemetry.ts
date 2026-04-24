@@ -4,6 +4,7 @@ export interface DecodedTelemetry { label: string; fields: TelemetryField[]; }
 const bytes = (hex: string): number[] => hex.split(" ").map(h => parseInt(h, 16));
 const u16be = (b: number[], i: number) => (b[i] << 8) | b[i + 1];
 const i16be = (b: number[], i: number) => { const v = u16be(b, i); return v > 32767 ? v - 65536 : v; };
+const i16le = (b: number[], i: number) => { const v = b[i] | (b[i + 1] << 8); return v > 32767 ? v - 65536 : v; };
 
 function wheelFields(b: number[]): TelemetryField[] {
   return [
@@ -17,8 +18,8 @@ export function decode(key: string, raw: string): DecodedTelemetry | null {
   const b = bytes(raw);
   switch (key) {
     case "drs":       return { label: "DRS",     fields: [{ name: "State", value: b[0] ? "Open" : "Closed" }] };
-    case "imu_gyro":  return { label: "Gyro",    fields: [{ name: "X", value: i16be(b,0) + " °/s" }, { name: "Y", value: i16be(b,2) + " °/s" }, { name: "Z", value: i16be(b,4) + " °/s" }] };
-    case "imu_accel": return { label: "Accel",   fields: [{ name: "X", value: i16be(b,0) + " mg"  }, { name: "Y", value: i16be(b,2) + " mg"  }, { name: "Z", value: i16be(b,4) + " mg"  }] };
+    case "imu_gyro":  return { label: "Gyro",    fields: [{ name: "X", value: (i16le(b,0) * 0.0175).toFixed(2) + " °/s" }, { name: "Y", value: (i16le(b,2) * 0.0175).toFixed(2) + " °/s" }, { name: "Z", value: (i16le(b,4) * 0.0175).toFixed(2) + " °/s" }] };
+    case "imu_accel": return { label: "Accel",   fields: [{ name: "X", value: (i16le(b,0) * 0.122).toFixed(2) + " mg"  }, { name: "Y", value: (i16le(b,2) * 0.122).toFixed(2) + " mg"  }, { name: "Z", value: (i16le(b,4) * 0.122).toFixed(2) + " mg"  }] };
     case "wheel_fl":  return { label: "FL",      fields: wheelFields(b) };
     case "wheel_fr":  return { label: "FR",      fields: wheelFields(b) };
     case "wheel_rr":  return { label: "RR",      fields: wheelFields(b) };
