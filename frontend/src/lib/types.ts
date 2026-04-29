@@ -28,3 +28,15 @@ export function generateFakeTelemetry(): Telemetry[] {
 export const fmt     = (us: number)           => us === 0 ? "—" : (us / 1e6).toFixed(3) + "s";
 export const fmtDiff = (a: number, b: number) => (a === 0 || b === 0) ? "—" : ((b - a) / 1e6).toFixed(3) + "s";
 
+export const fmtTimestamp = (us: number): string => {
+  if (us === 0) return "—";
+  const totalMs  = Math.floor(us / 1000);
+  const ms       = totalMs % 1000;
+  const totalSec = Math.floor(totalMs / 1000);
+  const s        = totalSec % 60;
+  const totalMin = Math.floor(totalSec / 60);
+  const m        = totalMin % 60;
+  const h        = Math.floor(totalMin / 60) % 24;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+};
+

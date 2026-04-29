@@ -33,7 +33,7 @@ function App() {
   const [configs, setConfigs] = useState<GateConfig[]>([]);
   const [telemetry, setTelemetry] = useState<Telemetry[]>([]);
   const [telemHistory, setTelemHistory] = useState<Record<string, { t: number; raw: string }[]>>({});
-  const [gateHistory, setGateHistory] = useState<Record<string, { diff_us: number; t: number }[]>>({});
+  const [gateHistory, setGateHistory] = useState<Record<string, { diff_us: number; t: number; timestamp_us: number }[]>>({});
   const prevGateTimestamps = useRef<Record<string, number>>({});
   const [recvConnected, setRecvConnected] = useState<boolean>(false);
   const fake = false;
@@ -47,7 +47,7 @@ function App() {
       const next = { ...h };
       for (const g of changed) {
         const arr = next[g.mac] ? [...next[g.mac]] : [];
-        arr.push({ diff_us: g.diff_us, t: now });
+        arr.push({ diff_us: g.diff_us, t: now, timestamp_us: g.timestamp_us });
         next[g.mac] = arr.slice(-GATE_HISTORY_MAX);
       }
       return next;

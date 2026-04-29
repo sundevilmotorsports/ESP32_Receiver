@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import type { GateConfig, GateRow } from "@/lib/types";
-import { fmt, fmtDiff } from "@/lib/types";
+import { fmt, fmtDiff, fmtTimestamp } from "@/lib/types";
 
-type GateDeltaHistory = Record<string, { diff_us: number; t: number }[]>;
+type GateDeltaHistory = Record<string, { diff_us: number; t: number; timestamp_us: number }[]>;
 
 interface Props {
   groups: Record<string, GateRow[]>;
@@ -17,7 +17,7 @@ interface Props {
   gateHistory?: GateDeltaHistory;
 }
 
-function DeltaHistory({ entries }: { entries: { diff_us: number; t: number }[] }) {
+function DeltaHistory({ entries }: { entries: { diff_us: number; t: number; timestamp_us: number }[] }) {
   if (!entries.length) return null;
 
   const values = entries.map(e => e.diff_us);
@@ -67,7 +67,7 @@ function DeltaHistory({ entries }: { entries: { diff_us: number; t: number }[] }
         {[...entries].reverse().map((e, i) => (
           <div key={i} className="flex justify-between items-center text-xs">
             <span className="text-muted-foreground tabular-nums">
-              {new Date(e.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {fmtTimestamp(e.timestamp_us)}
             </span>
             <span
               className="font-mono tabular-nums"
@@ -138,7 +138,7 @@ export function GatesPanel({ groups, allConfigs, onSave, onSwap, gateHistory = {
                             {row.gate?.stuck && (
                               <Badge variant="destructive" className="animate-pulse text-xs px-1.5 py-0">STUCK</Badge>
                             )}
-                            <span className="text-muted-foreground">{fmt(row.gate?.timestamp_us ?? 0)}</span>
+                            <span className="text-muted-foreground">{fmtTimestamp(row.gate?.timestamp_us ?? 0)}</span>
                             <span className="text-primary font-bold">{fmt(row.gate?.diff_us ?? 0)}</span>
                             {hist.length > 0 && (
                               <Button
